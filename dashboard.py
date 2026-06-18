@@ -12,17 +12,17 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ 실시간 업데이트 및 버전 관리 변수
-APP_VERSION = "v4.8.0 (3 Free Trials)"
+APP_VERSION = "v5.1.0 (Multi-Tier Bulk Scanning)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
 st.set_page_config(page_title="Global K-Beauty Compliance", page_icon="💄", layout="wide")
 
 # ==========================================
-# 🔄 세션 상태 초기화 (무료 이용 횟수 추적용 - 대표님 지시사항 반영: 3회)
+# 🔄 세션 상태 초기화 (무료 3회)
 # ==========================================
 if "free_uses_left" not in st.session_state:
-    st.session_state.free_uses_left = 3  # 👉 무료 3회 제공!
+    st.session_state.free_uses_left = 3
 
 # ==========================================
 # 📡 시스템 온라인 상태 바 (사이드바 최상단 고정)
@@ -33,30 +33,38 @@ st.sidebar.markdown(f"🔍 **Keyword Matching Engine:**\n{KEYWORD_MATCHING_STATU
 st.sidebar.markdown("---")
 
 # ==========================================
-# 🔐 프리미엄 접근창 (결제 연동 완료)
+# 🔐 프리미엄 접근창 (요금제 구분 완료)
 # ==========================================
-VALID_PASSWORDS = ["VIP-KBEAUTY-2026", "TEST-CEO-1234"]
+# 대표님키, 결제고객용 베이직키, 결제고객용 프로키
+VALID_PASSWORDS = ["VIP-KBEAUTY-2026", "PRO-BULK-9988", "q1w2e3r41@3"]
+
 st.sidebar.subheader("🔐 Premium Access")
 entered_password = st.sidebar.text_input("Enter your Access Code:", type="password")
 
-# VIP 인증 여부 판정
+# 등급 판정 로직
 is_vip = entered_password in VALID_PASSWORDS
+is_pro_or_ceo = entered_password in ["PRO-BULK-9988", "q1w2e3r41@3"]
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("🔥 Premium Features")
-st.sidebar.write("✔️ AI Photo Scanner (Vision OCR)")
-st.sidebar.write("✔️ Auto-Formatted Excel Reports")
+st.sidebar.subheader("💎 Choose Your Plan")
 
-# 👉 대표님의 검로드 결제 링크
-st.sidebar.link_button("💳 Subscribe Now ($299/mo)", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
+# 💳 베이직 요금제 버튼 ($299)
+st.sidebar.markdown("**Standard Plan ($299/mo)**\nSingle File Scan")
+st.sidebar.link_button("💳 Subscribe Standard", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
+
+st.sidebar.markdown("<br>", unsafe_allow_html=True)
+
+# 💳 프로 요금제 버튼 ($499)
+st.sidebar.markdown("**🏆 PRO Bulk Plan ($499/mo)**\nUnlimited Multiple Image/File Uploads")
+# 👉 이곳에 프로 요금제용 검로드 링크가 생성되면 주소를 교체해 주십시오!
+st.sidebar.link_button("🚀 Subscribe PRO Bulk", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
 
 # ==========================================
-# 📞 고객 센터 / 피드백 창구 (사이드바 하단)
+# 📞 고객 지원 창구
 # ==========================================
 st.sidebar.markdown("---")
 st.sidebar.markdown("💬 **Need Help or Found a Bug?**")
 st.sidebar.markdown("📧 [Contact Support](mailto:simsuk95126@gmail.com)")
-st.sidebar.markdown("💡 [Request a New Feature](https://forms.google.com/)")
 
 
 # ==========================================
@@ -65,63 +73,49 @@ st.sidebar.markdown("💡 [Request a New Feature](https://forms.google.com/)")
 st.title("🌍 Global K-Beauty Compliance Master")
 st.markdown("##### AI-powered customs compliance checker for US, EU, CN, HALAL and more.")
 
-st.markdown("### 💎 Why Choose Our Platform?")
-st.markdown(f"• 🔄 **Real-Time Regulatory DB:** Directly synced with official global prohibited items ({BANNED_SUBSTANCES_STATUS}) to pre-emptively block custom clearance rejection.")
-st.markdown("• 📸 **AI Vision OCR (No Typing):** Just upload a product back-photo. Our strict Vision AI reads and extracts Korean ingredient text instantly with zero hallucinations.")
-st.markdown("• 🌍 **10-Country Cross Check:** Simultaneously cross-examine ingredients against US FDA (MoCRA), EU CPNP, China NMPA, and strict HALAL standards in 1 second.")
+st.markdown("### 💎 Multi-Tier Pricing & Plan Benefits")
+col_plan1, col_plan2 = st.columns(2)
+with col_plan1:
+    st.info("🔹 **Standard Plan ($299/mo)**\n* 3 Free Trial Uses\n* Single image or file upload at a time\n* Instant translation & cross-check\n* Excel report download")
+with col_plan2:
+    st.success("🏆 **PRO Bulk Plan ($499/mo)**\n* **Unlimited multiple image/file uploads** at once\n* Automated batch extraction & matrix analyzer\n* **Merged Master Excel Report** for all files\n* Priority developer support")
 st.markdown("---")
 
 
 # ==========================================
-# 🛑 철통 방어선 (무료 기회 3회를 다 썼을 때 차단)
+# 🛑 철통 방어선 (무료 기회 소진 시 차단)
 # ==========================================
 if not is_vip and st.session_state.free_uses_left <= 0:
-    st.error("🔒 **Free Trial Expired.** You have used all 3 free compliance checks. Please subscribe in the sidebar and enter your VIP Access Code to unlock unlimited usage.")
-    st.stop()  # 👉 여기서 코드 렌더링을 완전히 멈춥니다! 얄짤없이 결제 유도.
+    st.error("🔒 **Free Trial Expired.** You have used all 3 free compliance checks. Please subscribe in the sidebar and enter your VIP/PRO Access Code to unlock unlimited usage.")
+    st.stop()
 
-# 상태 알림창 표시 (사이드바)
 if is_vip:
-    st.sidebar.success("🔓 VIP Access Granted! Unlimited Checks Enrolled.")
+    if entered_password == "q1w2e3r41@3":
+        st.sidebar.success("👑 **CEO Master Key Active! (Unlimited PRO Access)**")
+    elif entered_password == "PRO-BULK-9988":
+        st.sidebar.success("🏆 **PRO Bulk Member Access Granted!**")
+    else:
+        st.sidebar.success("🔓 Standard VIP Access Granted!")
 else:
     st.sidebar.warning(f"🎁 Free Trial Active: {st.session_state.free_uses_left} checks remaining.")
 
 
 # ==========================================
-# 🛡️ 법적 고지 (동의해야만 밑에 화면이 열림)
+# 🛡️ 법적 고지
 # ==========================================
 if "disclaimer_agreed" not in st.session_state:
     st.session_state.disclaimer_agreed = False
 
 if not st.session_state.disclaimer_agreed:
     st.markdown("<h2 style='color: #d9534f;'>⚠️ REQUIRED ACTION: Review Legal Disclaimer</h2>", unsafe_allow_html=True)
-    
-    st.warning("""
-    ⚖️ LEGAL DISCLAIMER & LIMITATION OF LIABILITY
-    1. Informational Only: The provided INCI names, compliance statuses, and regulation notices do not constitute legal, medical, or official regulatory advice.
-    2. No Liability: Under no circumstances shall the API provider be liable for any direct, indirect, incidental, or consequential damages arising from the use of this tool.
-    3. User Responsibility: Users must independently verify all data with certified regulatory professionals before commercial application.
-    """)
-    
-    st.markdown("""
-        <style>
-        .big-font { font-size:24px !important; font-weight: bold !important; color: #111111 !important; }
-        </style>
-        """, unsafe_allow_html=True)
-    
-    st.markdown('<p class="big-font">👇 Check the box below to agree and unlock the system:</p>', unsafe_allow_html=True)
-    
+    st.warning("⚖️ LEGAL DISCLAIMER: Informational Only. The provided INCI names, compliance statuses, and regulation notices do not constitute legal or official regulatory advice. Users must independently verify all data.")
     if st.checkbox("I HAVE READ THE LEGAL DISCLAIMER AND AGREE TO THE TERMS OF USE."):
         st.session_state.disclaimer_agreed = True
         st.rerun()
-
 else:
-    col_status, col_reset = st.columns([5, 1])
-    with col_status:
-        st.write("✅ *Legal Disclaimer Accepted. Analysis Engine Unlocked.*")
-    with col_reset:
-        if st.button("⚖️ Review Terms", use_container_width=True):
-            st.session_state.disclaimer_agreed = False
-            st.rerun()
+    if st.button("⚖️ Review Terms"):
+        st.session_state.disclaimer_agreed = False
+        st.rerun()
             
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -130,38 +124,53 @@ else:
     # ==========================================
     st.subheader("🚀 Compliance Analysis Workspace")
     target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC", "BR"])
-    uploaded_file = st.file_uploader("2️⃣ Upload File (Image / Excel / CSV)", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'])
+    
+    # ⚙️ [핵심 이원화] 프로 플랜 이상이거나 최고 관리자일 때만 다중 파일 업로드 허용!
+    if is_pro_or_ceo:
+        uploaded_files = st.file_uploader("2️⃣ Upload Multiple Files (Images / Excels) - [PRO UNLOCKED]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=True)
+    else:
+        uploaded_file = st.file_uploader("2️⃣ Upload A Single File (Image / Excel) - [Standard Mode]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=False)
+        uploaded_files = [uploaded_file] if uploaded_file is not None else []
 
-    if uploaded_file is not None:
-        ingredient_list = []
-        file_extension = uploaded_file.name.split('.')[-1].lower()
-
-        if file_extension in ['jpg', 'jpeg', 'png']:
-            st.image(uploaded_file, caption="Uploaded Image", width=220)
-            st.warning("🤖 AI Scanner is extracting ingredients... (5~10 sec)")
-            base64_image = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
-            vision_prompt = "Extract the ingredient names in order and output them separated by commas (,). [STRICT INSTRUCTION]: Do not guess. If blurry, output '[Unreadable]'."
+    # 대량 성분 처리를 위한 통합 리스트 및 파일별 매핑 딕셔너리
+    all_ingredients = []
+    
+    if len(uploaded_files) > 0:
+        for f in uploaded_files:
+            file_extension = f.name.split('.')[-1].lower()
             
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[{"role": "user", "content": [{"type": "text", "text": vision_prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-                    temperature=0.0
-                )
-                ingredient_list = [ing.strip() for ing in response.choices[0].message.content.split(',')]
-                st.success("✅ Extraction Complete!")
-            except Exception as e:
-                st.error("Image scan failed.")
-        
-        else:
-            df = pd.read_csv(uploaded_file) if file_extension == 'csv' else pd.read_excel(uploaded_file)
-            st.dataframe(df.head(2))
-            ingredient_list = df.iloc[:, 0].dropna().astype(str).tolist()
+            if file_extension in ['jpg', 'jpeg', 'png']:
+                st.image(f, caption=f"Uploaded: {f.name}", width=180)
+                st.warning(f"🤖 AI Scanning [{f.name}]... (5~10 sec)")
+                base64_image = base64.b64encode(f.getvalue()).decode('utf-8')
+                vision_prompt = "Extract the ingredient names in order and output them separated by commas (,). Do not guess."
+                
+                try:
+                    response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "user", "content": [{"type": "text", "text": vision_prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
+                        temperature=0.0
+                    )
+                    extracted_list = [ing.strip() for ing in response.choices[0].message.content.split(',') if ing.strip()]
+                    all_ingredients.extend(extracted_list)
+                    
+                    st.markdown(f"##### 📝 Extracted List from {f.name}")
+                    st.dataframe(pd.DataFrame({"No.": range(1, len(extracted_list)+1), "Ingredient": extracted_list}), hide_index=True, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Image scan failed for {f.name}")
+            else:
+                df = pd.read_csv(f) if file_extension == 'csv' else pd.read_excel(f)
+                st.markdown(f"📊 Preview: {f.name}")
+                st.dataframe(df.head(2))
+                all_ingredients.extend(df.iloc[:, 0].dropna().astype(str).tolist())
 
-        if ingredient_list and st.button("🚀 Run 10-Country Compliance Check!", use_container_width=True):
+        # 중복 성분 제거를 통한 API 호출 최적화
+        all_ingredients = list(set(all_ingredients))
+
+        if all_ingredients and st.button("🚀 Run 10-Country Compliance Check!", use_container_width=True):
             with st.spinner(f"Searching [{target_country}] customs database... 🕵️‍♂️"):
                 try:
-                    api_response = requests.post(API_URL, json={"ingredients": ingredient_list, "target": target_country})
+                    api_response = requests.post(API_URL, json={"ingredients": all_ingredients, "target": target_country})
                     if api_response.status_code == 200:
                         result_data = api_response.json()
                         result_df = pd.DataFrame(result_data['report_details'])
@@ -171,21 +180,21 @@ else:
                         
                         st.markdown("---")
                         if result_data['compliance_status'] == "PASS":
-                            st.success(f"🎉 Perfect! No restricted ingredients found for {target_country}.")
+                            st.success(f"🎉 Analysis Done! No restricted ingredients found for {target_country}.")
                         else:
-                            st.error(f"🚨 Warning! {result_data['failed_count']} ingredients hit the regulation filters for {target_country}.")
+                            st.error(f"🚨 Warning! {result_data['failed_count']} ingredients hit the regulation filters.")
                         
                         st.dataframe(result_df, use_container_width=True, hide_index=True)
 
                         excel_buffer = io.BytesIO()
                         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                             result_df.to_excel(writer, index=False, sheet_name='Compliance_Report')
-                        st.download_button("📥 Download Excel Report", data=excel_buffer.getvalue(), file_name=f"Report_{target_country}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                        st.download_button("📥 Download Merged Excel Report", data=excel_buffer.getvalue(), file_name=f"Merged_Report_{target_country}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                         
-                        # ⚠️ [핵심 자동화] 유효한 비밀번호가 없다면 무료 횟수 차감!
+                        # 횟수 차감
                         if not is_vip:
                             st.session_state.free_uses_left -= 1
-                            st.rerun()  # 검사 횟수가 차감되면 화면을 바로 새로고침하여 횟수를 깎아버림!
+                            st.rerun()
                             
                 except Exception as e:
                     st.error("API Connection Failed.")
