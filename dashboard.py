@@ -12,11 +12,17 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ 실시간 업데이트 및 버전 관리 변수
-APP_VERSION = "v4.6.0 (Production)"
+APP_VERSION = "v4.8.0 (3 Free Trials)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
 st.set_page_config(page_title="Global K-Beauty Compliance", page_icon="💄", layout="wide")
+
+# ==========================================
+# 🔄 세션 상태 초기화 (무료 이용 횟수 추적용 - 대표님 지시사항 반영: 3회)
+# ==========================================
+if "free_uses_left" not in st.session_state:
+    st.session_state.free_uses_left = 3  # 👉 무료 3회 제공!
 
 # ==========================================
 # 📡 시스템 온라인 상태 바 (사이드바 최상단 고정)
@@ -33,6 +39,9 @@ VALID_PASSWORDS = ["VIP-KBEAUTY-2026", "TEST-CEO-1234"]
 st.sidebar.subheader("🔐 Premium Access")
 entered_password = st.sidebar.text_input("Enter your Access Code:", type="password")
 
+# VIP 인증 여부 판정
+is_vip = entered_password in VALID_PASSWORDS
+
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔥 Premium Features")
 st.sidebar.write("✔️ AI Photo Scanner (Vision OCR)")
@@ -42,7 +51,7 @@ st.sidebar.write("✔️ Auto-Formatted Excel Reports")
 st.sidebar.link_button("💳 Subscribe Now ($299/mo)", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
 
 # ==========================================
-# 📞 고객 센터 / 피드백 창구 (사이드바 하단) - 대표님 메일 연동 완료!
+# 📞 고객 센터 / 피드백 창구 (사이드바 하단)
 # ==========================================
 st.sidebar.markdown("---")
 st.sidebar.markdown("💬 **Need Help or Found a Bug?**")
@@ -51,7 +60,7 @@ st.sidebar.markdown("💡 [Request a New Feature](https://forms.google.com/)")
 
 
 # ==========================================
-# 👑 왜 저희 플랫폼을 써야 하는지 (마케팅 문구: 누구나 볼 수 있음)
+# 👑 플랫폼 마케팅 문구
 # ==========================================
 st.title("🌍 Global K-Beauty Compliance Master")
 st.markdown("##### AI-powered customs compliance checker for US, EU, CN, HALAL and more.")
@@ -64,18 +73,21 @@ st.markdown("---")
 
 
 # ==========================================
-# 🛑 철통 방어선 (비밀번호 검증) - 돈 안 낸 사람은 여기서 차단됨!
+# 🛑 철통 방어선 (무료 기회 3회를 다 썼을 때 차단)
 # ==========================================
-if entered_password not in VALID_PASSWORDS:
-    st.warning("🔒 **System Locked.** Please subscribe and enter the VIP Access Code in the sidebar to unlock the AI Analysis Engine.")
-    st.stop()  # 👉 [핵심] 여기서 화면 렌더링을 멈춥니다!
+if not is_vip and st.session_state.free_uses_left <= 0:
+    st.error("🔒 **Free Trial Expired.** You have used all 3 free compliance checks. Please subscribe in the sidebar and enter your VIP Access Code to unlock unlimited usage.")
+    st.stop()  # 👉 여기서 코드 렌더링을 완전히 멈춥니다! 얄짤없이 결제 유도.
 
-# 비밀번호가 맞으면 뜨는 메시지
-st.sidebar.success("🔓 VIP Access Granted! Welcome back.")
+# 상태 알림창 표시 (사이드바)
+if is_vip:
+    st.sidebar.success("🔓 VIP Access Granted! Unlimited Checks Enrolled.")
+else:
+    st.sidebar.warning(f"🎁 Free Trial Active: {st.session_state.free_uses_left} checks remaining.")
 
 
 # ==========================================
-# 🛡️ 법적 고지 (비밀번호 맞춘 VIP 고객에게만 보임)
+# 🛡️ 법적 고지 (동의해야만 밑에 화면이 열림)
 # ==========================================
 if "disclaimer_agreed" not in st.session_state:
     st.session_state.disclaimer_agreed = False
@@ -87,7 +99,7 @@ if not st.session_state.disclaimer_agreed:
     ⚖️ LEGAL DISCLAIMER & LIMITATION OF LIABILITY
     1. Informational Only: The provided INCI names, compliance statuses, and regulation notices do not constitute legal, medical, or official regulatory advice.
     2. No Liability: Under no circumstances shall the API provider be liable for any direct, indirect, incidental, or consequential damages arising from the use of this tool.
-    3. User Responsibility: Users must independently verify all data with certified regulatory professionals before commercial distribution.
+    3. User Responsibility: Users must independently verify all data with certified regulatory professionals before commercial application.
     """)
     
     st.markdown("""
@@ -169,5 +181,11 @@ else:
                         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                             result_df.to_excel(writer, index=False, sheet_name='Compliance_Report')
                         st.download_button("📥 Download Excel Report", data=excel_buffer.getvalue(), file_name=f"Report_{target_country}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                        
+                        # ⚠️ [핵심 자동화] 유효한 비밀번호가 없다면 무료 횟수 차감!
+                        if not is_vip:
+                            st.session_state.free_uses_left -= 1
+                            st.rerun()  # 검사 횟수가 차감되면 화면을 바로 새로고침하여 횟수를 깎아버림!
+                            
                 except Exception as e:
                     st.error("API Connection Failed.")
