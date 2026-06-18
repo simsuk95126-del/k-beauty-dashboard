@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pandas
+openai
+python-dotenv
+
+streamlit
+pandas
+openai
+openpyxl
+python-dotenv
