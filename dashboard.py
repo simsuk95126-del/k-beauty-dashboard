@@ -12,20 +12,22 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ 실시간 업데이트 및 버전 관리 변수
-APP_VERSION = "v5.2.0 (PRO Link Fully Integrated)"
+APP_VERSION = "v5.3.0 (Result Memory Fix)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
 st.set_page_config(page_title="Global K-Beauty Compliance", page_icon="💄", layout="wide")
 
 # ==========================================
-# 🔄 세션 상태 초기화 (무료 3회 맛보기)
+# 🔄 세션 상태 초기화 (무료 3회 & 결과 메모리 영구 보존)
 # ==========================================
 if "free_uses_left" not in st.session_state:
     st.session_state.free_uses_left = 3
+if "api_result" not in st.session_state:
+    st.session_state.api_result = None
 
 # ==========================================
-# 📡 시스템 온라인 상태 바 (사이드바 최상단 고정)
+# 📡 시스템 온라인 상태 바 
 # ==========================================
 st.sidebar.success(f"🟢 **SYSTEM ONLINE** (Ver: {APP_VERSION})")
 st.sidebar.markdown(f"❌ **Banned Substances DB:**\n{BANNED_SUBSTANCES_STATUS}")
@@ -33,36 +35,27 @@ st.sidebar.markdown(f"🔍 **Keyword Matching Engine:**\n{KEYWORD_MATCHING_STATU
 st.sidebar.markdown("---")
 
 # ==========================================
-# 🔐 프리미엄 접근창 (CEO 마스터키 및 플랜 비밀번호)
+# 🔐 프리미엄 접근창 
 # ==========================================
-# VIP-KBEAUTY-2026: 스탠다드 플랜 ($299)
-# PRO-BULK-9988: 프로 대량스캔 플랜 ($499)
-# q1w2e3r41@3: 대표님 전용 평생 무제한 마스터키 🔥
 VALID_PASSWORDS = ["VIP-KBEAUTY-2026", "PRO-BULK-9988", "q1w2e3r41@3"]
 
 st.sidebar.subheader("🔐 Premium Access")
 entered_password = st.sidebar.text_input("Enter your Access Code:", type="password")
 
-# 등급 판정 로직
 is_vip = entered_password in VALID_PASSWORDS
 is_pro_or_ceo = entered_password in ["PRO-BULK-9988", "q1w2e3r41@3"]
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("💎 Choose Your Plan")
 
-# 💳 스탠다드 요금제 버튼 ($299)
 st.sidebar.markdown("**Standard Plan ($299/mo)**\nSingle File Scan")
 st.sidebar.link_button("💳 Subscribe Standard", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
-# 💳 🏆 PRO 대량스캔 요금제 버튼 ($499) - 대표님이 주신 새 주소 완벽 연동! 🔥
 st.sidebar.markdown("**🏆 PRO Bulk Plan ($499/mo)**\nUnlimited Multiple Image/File Uploads")
 st.sidebar.link_button("🚀 Subscribe PRO Bulk", "https://dahee5.gumroad.com/l/pkoph", use_container_width=True)
 
-# ==========================================
-# 📞 고객 지원 창구
-# ==========================================
 st.sidebar.markdown("---")
 st.sidebar.markdown("💬 **Need Help or Found a Bug?**")
 st.sidebar.markdown("📧 [Contact Support](mailto:simsuk95126@gmail.com)")
@@ -84,11 +77,11 @@ st.markdown("---")
 
 
 # ==========================================
-# 🛑 철통 방어선 (비밀번호 없는 일반 유저가 3회 다 썼을 때 차단)
+# 🛑 철통 방어선 
 # ==========================================
 if not is_vip and st.session_state.free_uses_left <= 0:
     st.error("🔒 **Free Trial Expired.** You have used all 3 free compliance checks. Please subscribe in the sidebar and enter your VIP/PRO Access Code to unlock unlimited usage.")
-    st.stop()  # 웹사이트 가동 중단 및 차단!
+    st.stop()  
 
 if is_vip:
     if entered_password == "q1w2e3r41@3":
@@ -102,7 +95,7 @@ else:
 
 
 # ==========================================
-# 🛡️ 법적 고지 (Disclaimer)
+# 🛡️ 법적 고지 
 # ==========================================
 if "disclaimer_agreed" not in st.session_state:
     st.session_state.disclaimer_agreed = False
@@ -126,7 +119,6 @@ else:
     st.subheader("🚀 Compliance Analysis Workspace")
     target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC", "BR"])
     
-    # ⚙️ 프로 등급 및 관리자만 다중 파일 업로드 허용 활성화
     if is_pro_or_ceo:
         uploaded_files = st.file_uploader("2️⃣ Upload Multiple Files (Images / Excels) - [PRO UNLOCKED]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=True)
     else:
@@ -154,7 +146,6 @@ else:
                     extracted_list = [ing.strip() for ing in response.choices[0].message.content.split(',') if ing.strip()]
                     all_ingredients.extend(extracted_list)
                     
-                    # 📝 추출 성분 표 형태 리스트업 복구본 작동
                     st.markdown(f"##### 📝 Extracted List from {f.name}")
                     st.dataframe(pd.DataFrame({"No.": range(1, len(extracted_list)+1), "Ingredient": extracted_list}), hide_index=True, use_container_width=True)
                 except Exception as e:
@@ -167,6 +158,7 @@ else:
 
         all_ingredients = list(set(all_ingredients))
 
+        # ⚙️ 검사 실행 버튼
         if all_ingredients and st.button("🚀 Run 10-Country Compliance Check!", use_container_width=True):
             with st.spinner(f"Searching [{target_country}] customs database... 🕵️‍♂️"):
                 try:
@@ -178,23 +170,39 @@ else:
                         result_df.insert(0, 'No.', range(1, len(result_df) + 1))
                         result_df['Compliance Status'] = result_df['Compliance Status'].apply(lambda x: '🟢 PASS' if x else '🔴 FAIL')
                         
-                        st.markdown("---")
-                        if result_data['compliance_status'] == "PASS":
-                            st.success(f"🎉 Analysis Done! No restricted ingredients found for {target_country}.")
-                        else:
-                            st.error(f"🚨 Warning! {result_data['failed_count']} ingredients hit the regulation filters.")
-                        
-                        st.dataframe(result_df, use_container_width=True, hide_index=True)
-
                         excel_buffer = io.BytesIO()
                         with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                             result_df.to_excel(writer, index=False, sheet_name='Compliance_Report')
-                        st.download_button("📥 Download Merged Excel Report", data=excel_buffer.getvalue(), file_name=f"Merged_Report_{target_country}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                         
-                        # 무료 횟수 소진 처리 (마스터키 및 구독자는 제외)
+                        # ⚠️ [해결] 결과를 메모리(session_state)에 영구 저장!
+                        st.session_state.api_result = {
+                            "df": result_df,
+                            "excel_data": excel_buffer.getvalue(),
+                            "status": result_data['compliance_status'],
+                            "failed_count": result_data['failed_count'],
+                            "target": target_country
+                        }
+
+                        # 무료 횟수 차감 및 새로고침
                         if not is_vip:
                             st.session_state.free_uses_left -= 1
-                            st.rerun()
+                        st.rerun()  # 리프레시! (하지만 메모리에 결과가 있어서 사라지지 않음)
                             
                 except Exception as e:
                     st.error("API Connection Failed.")
+
+    # ==========================================
+    # 📥 결과창 및 다운로드 버튼 현출 (리프레시 되어도 안전하게 유지됨)
+    # ==========================================
+    if st.session_state.api_result is not None:
+        res = st.session_state.api_result
+        st.markdown("---")
+        if res["status"] == "PASS":
+            st.success(f"🎉 Analysis Done! No restricted ingredients found for {res['target']}.")
+        else:
+            st.error(f"🚨 Warning! {res['failed_count']} ingredients hit the regulation filters.")
+        
+        st.dataframe(res["df"], use_container_width=True, hide_index=True)
+
+        # 엑셀 다운로드 버튼 (안전하게 화면에 고정)
+        st.download_button("📥 Download Merged Excel Report", data=res["excel_data"], file_name=f"Merged_Report_{res['target']}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
