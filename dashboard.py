@@ -13,7 +13,7 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ 실시간 업데이트 및 버전 관리 변수
-APP_VERSION = "v5.4.0 (Parser Fix & Custom Loader)"
+APP_VERSION = "v5.5.0 (Hybrid Bulk & Source Tracking)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -28,7 +28,7 @@ if "api_result" not in st.session_state:
     st.session_state.api_result = None
 
 # ==========================================
-# 📡 시스템 온라인 상태 바 (사이드바 최상단 고정)
+# 📡 시스템 온라인 상태 바 
 # ==========================================
 st.sidebar.success(f"🟢 **SYSTEM ONLINE** (Ver: {APP_VERSION})")
 st.sidebar.markdown(f"❌ **Banned Substances DB:**\n{BANNED_SUBSTANCES_STATUS}")
@@ -36,33 +36,27 @@ st.sidebar.markdown(f"🔍 **Keyword Matching Engine:**\n{KEYWORD_MATCHING_STATU
 st.sidebar.markdown("---")
 
 # ==========================================
-# 🔐 프리미엄 접근창 (CEO 마스터키 완벽 유지)
+# 🔐 프리미엄 접근창 
 # ==========================================
 VALID_PASSWORDS = ["VIP-KBEAUTY-2026", "PRO-BULK-9988", "q1w2e3r41@3"]
 
 st.sidebar.subheader("🔐 Premium Access")
 entered_password = st.sidebar.text_input("Enter your Access Code:", type="password")
 
-# 등급 판정 로직
 is_vip = entered_password in VALID_PASSWORDS
 is_pro_or_ceo = entered_password in ["PRO-BULK-9988", "q1w2e3r41@3"]
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("💎 Choose Your Plan")
 
-# 💳 스탠다드 요금제 버튼 ($299)
 st.sidebar.markdown("**Standard Plan ($299/mo)**\nSingle File Scan")
 st.sidebar.link_button("💳 Subscribe Standard", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
-# 💳 🏆 PRO 대량스캔 요금제 버튼 ($499) - 개설하신 전용 주소 연동
 st.sidebar.markdown("**🏆 PRO Bulk Plan ($499/mo)**\nUnlimited Multiple Image/File Uploads")
 st.sidebar.link_button("🚀 Subscribe PRO Bulk", "https://dahee5.gumroad.com/l/pkoph", use_container_width=True)
 
-# ==========================================
-# 📞 고객 지원 창구
-# ==========================================
 st.sidebar.markdown("---")
 st.sidebar.markdown("💬 **Need Help or Found a Bug?**")
 st.sidebar.markdown("📧 [Contact Support](mailto:simsuk95126@gmail.com)")
@@ -84,7 +78,7 @@ st.markdown("---")
 
 
 # ==========================================
-# 🛑 철통 방어선 (무료 기회 소진 시 차단)
+# 🛑 철통 방어선 
 # ==========================================
 if not is_vip and st.session_state.free_uses_left <= 0:
     st.error("🔒 **Free Trial Expired.** You have used all 3 free compliance checks. Please subscribe in the sidebar and enter your VIP/PRO Access Code to unlock unlimited usage.")
@@ -102,7 +96,7 @@ else:
 
 
 # ==========================================
-# 🛡️ 법적 고지 (Disclaimer)
+# 🛡️ 법적 고지 
 # ==========================================
 if "disclaimer_agreed" not in st.session_state:
     st.session_state.disclaimer_agreed = False
@@ -132,7 +126,8 @@ else:
         uploaded_file = st.file_uploader("2️⃣ Upload A Single File (Image / Excel) - [Standard Mode]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=False)
         uploaded_files = [uploaded_file] if uploaded_file is not None else []
 
-    all_ingredients = []
+    # 🌟 [V5.5 핵심] 성분별 출처 파일을 추적하는 메모장(딕셔너리) 생성
+    ingredient_source_map = {}
     
     if len(uploaded_files) > 0:
         for f in uploaded_files:
@@ -143,7 +138,6 @@ else:
                 st.warning(f"🤖 AI Scanning [{f.name}]... (5~10 sec)")
                 base64_image = base64.b64encode(f.getvalue()).decode('utf-8')
                 
-                # 🛠️ [버그 픽스 1] 쉼표 분리 차단 ➡️ 파이프(|) 기호 분리 강제 명령 명시
                 vision_prompt = "Extract the ingredient names in order and output them separated by a vertical bar (|). [STRICT INSTRUCTION]: Do not use commas for separation. Example format: 정제수|글리세린|1,2-헥산디올"
                 
                 try:
@@ -152,9 +146,13 @@ else:
                         messages=[{"role": "user", "content": [{"type": "text", "text": vision_prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
                         temperature=0.0
                     )
-                    # 🛠️ [버그 픽스 2] 파이프(|) 기호를 기준으로 성분 목록 안전하게 쪼개기
                     extracted_list = [ing.strip() for ing in response.choices[0].message.content.split('|') if ing.strip()]
-                    all_ingredients.extend(extracted_list)
+                    
+                    # 📝 추출된 성분에 출처 파일명(f.name) 꼬리표 달기
+                    for ing in extracted_list:
+                        if ing not in ingredient_source_map:
+                            ingredient_source_map[ing] = set()
+                        ingredient_source_map[ing].add(f.name)
                     
                     st.markdown(f"##### 📝 Extracted List from {f.name}")
                     st.dataframe(pd.DataFrame({"No.": range(1, len(extracted_list)+1), "Ingredient": extracted_list}), hide_index=True, use_container_width=True)
@@ -164,18 +162,25 @@ else:
                 df = pd.read_csv(f) if file_extension == 'csv' else pd.read_excel(f)
                 st.markdown(f"📊 Preview: {f.name}")
                 st.dataframe(df.head(2))
-                all_ingredients.extend(df.iloc[:, 0].dropna().astype(str).tolist())
+                
+                # 엑셀에서 추출한 성분도 출처 꼬리표 달기
+                excel_ingredients = df.iloc[:, 0].dropna().astype(str).tolist()
+                for ing in excel_ingredients:
+                    clean_ing = ing.strip()
+                    if clean_ing:
+                        if clean_ing not in ingredient_source_map:
+                            ingredient_source_map[clean_ing] = set()
+                        ingredient_source_map[clean_ing].add(f.name)
 
-        all_ingredients = list(set(all_ingredients))
+        # 중복이 완벽히 제거된 고유 성분 리스트 
+        unique_ingredients = list(ingredient_source_map.keys())
 
         # ⚙️ 검사 실행 버튼
-        if all_ingredients and st.button("🚀 Run 10-Country Compliance Check!", use_container_width=True):
-            # 🛠️ [신규 추가] 대량 스캔 대기 시간용 단계별 커스텀 로딩 바 가동
+        if unique_ingredients and st.button("🚀 Run 10-Country Compliance Check!", use_container_width=True):
             status_text = st.empty()
             progress_bar = st.progress(0)
             
-            # 단계별로 텍스트를 변화시켜 바이어가 지루해하지 않고 서버를 신뢰하게 만듦
-            status_text.warning("⏳ Step 1/4: Structuring pure cosmetic ingredients...")
+            status_text.warning("⏳ Step 1/4: Structuring pure cosmetic ingredients & mapping sources...")
             progress_bar.progress(25)
             time.sleep(1.5)
             
@@ -191,19 +196,29 @@ else:
             progress_bar.progress(95)
             
             try:
-                api_response = requests.post(API_URL, json={"ingredients": all_ingredients, "target": target_country})
+                api_response = requests.post(API_URL, json={"ingredients": unique_ingredients, "target": target_country})
                 if api_response.status_code == 200:
                     result_data = api_response.json()
                     result_df = pd.DataFrame(result_data['report_details'])
+                    
+                    # 기본 컬럼 정리
                     result_df.rename(columns={'original_ingredient': 'Original Ingredient', 'inci_name': 'INCI Name', 'is_safe': 'Compliance Status', 'regulation_notice': 'Regulation Notice'}, inplace=True)
                     result_df.insert(0, 'No.', range(1, len(result_df) + 1))
                     result_df['Compliance Status'] = result_df['Compliance Status'].apply(lambda x: '🟢 PASS' if x else '🔴 FAIL')
+                    
+                    # 🌟 [V5.5 핵심] 출처 파일(Source File) 컬럼 추가 매핑 작업
+                    result_df['Source File'] = result_df['Original Ingredient'].apply(
+                        lambda x: ", ".join(list(ingredient_source_map.get(x, [])))
+                    )
+                    
+                    # 엑셀 컬럼 순서 예쁘게 재배치
+                    result_df = result_df[['No.', 'Original Ingredient', 'INCI Name', 'Compliance Status', 'Source File', 'Regulation Notice']]
                     
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                         result_df.to_excel(writer, index=False, sheet_name='Compliance_Report')
                     
-                    # 결과를 메모리(session_state)에 저장
+                    # 메모리 저장
                     st.session_state.api_result = {
                         "df": result_df,
                         "excel_data": excel_buffer.getvalue(),
@@ -212,7 +227,6 @@ else:
                         "target": target_country
                     }
 
-                    # 완료 표시 후 리프레시
                     progress_bar.progress(100)
                     status_text.success("✅ Analysis Complete!")
                     time.sleep(0.5)
@@ -239,5 +253,4 @@ else:
         
         st.dataframe(res["df"], use_container_width=True, hide_index=True)
 
-        # 엑셀 다운로드 버튼
         st.download_button("📥 Download Merged Excel Report", data=res["excel_data"], file_name=f"Merged_Report_{res['target']}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
