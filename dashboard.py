@@ -12,7 +12,7 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ 실시간 업데이트 및 버전 관리 변수
-APP_VERSION = "v4.5.0 (Production)"
+APP_VERSION = "v4.6.0 (Production)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -42,6 +42,15 @@ st.sidebar.write("✔️ Auto-Formatted Excel Reports")
 st.sidebar.link_button("💳 Subscribe Now ($299/mo)", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
 
 # ==========================================
+# 📞 고객 센터 / 피드백 창구 (사이드바 하단) - 대표님 메일 연동 완료!
+# ==========================================
+st.sidebar.markdown("---")
+st.sidebar.markdown("💬 **Need Help or Found a Bug?**")
+st.sidebar.markdown("📧 [Contact Support](mailto:simsuk95126@gmail.com)")
+st.sidebar.markdown("💡 [Request a New Feature](https://forms.google.com/)")
+
+
+# ==========================================
 # 👑 왜 저희 플랫폼을 써야 하는지 (마케팅 문구: 누구나 볼 수 있음)
 # ==========================================
 st.title("🌍 Global K-Beauty Compliance Master")
@@ -59,7 +68,7 @@ st.markdown("---")
 # ==========================================
 if entered_password not in VALID_PASSWORDS:
     st.warning("🔒 **System Locked.** Please subscribe and enter the VIP Access Code in the sidebar to unlock the AI Analysis Engine.")
-    st.stop()  # 👉 [핵심] 여기서 화면 렌더링을 멈춥니다! (이 아래 코드는 보이지 않음)
+    st.stop()  # 👉 [핵심] 여기서 화면 렌더링을 멈춥니다!
 
 # 비밀번호가 맞으면 뜨는 메시지
 st.sidebar.success("🔓 VIP Access Granted! Welcome back.")
@@ -76,7 +85,7 @@ if not st.session_state.disclaimer_agreed:
     
     st.warning("""
     ⚖️ LEGAL DISCLAIMER & LIMITATION OF LIABILITY
-    1. Informational Only: The provided INCI names, compliance statuses, and regulation notices do not constitute official legal, medical, or customs regulatory advice.
+    1. Informational Only: The provided INCI names, compliance statuses, and regulation notices do not constitute legal, medical, or official regulatory advice.
     2. No Liability: Under no circumstances shall the API provider be liable for any direct, indirect, incidental, or consequential damages arising from the use of this tool.
     3. User Responsibility: Users must independently verify all data with certified regulatory professionals before commercial distribution.
     """)
