@@ -12,14 +12,14 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ 실시간 업데이트 및 버전 관리 변수
-APP_VERSION = "v5.1.0 (Multi-Tier Bulk Scanning)"
+APP_VERSION = "v5.2.0 (PRO Link Fully Integrated)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
 st.set_page_config(page_title="Global K-Beauty Compliance", page_icon="💄", layout="wide")
 
 # ==========================================
-# 🔄 세션 상태 초기화 (무료 3회)
+# 🔄 세션 상태 초기화 (무료 3회 맛보기)
 # ==========================================
 if "free_uses_left" not in st.session_state:
     st.session_state.free_uses_left = 3
@@ -33,9 +33,11 @@ st.sidebar.markdown(f"🔍 **Keyword Matching Engine:**\n{KEYWORD_MATCHING_STATU
 st.sidebar.markdown("---")
 
 # ==========================================
-# 🔐 프리미엄 접근창 (요금제 구분 완료)
+# 🔐 프리미엄 접근창 (CEO 마스터키 및 플랜 비밀번호)
 # ==========================================
-# 대표님키, 결제고객용 베이직키, 결제고객용 프로키
+# VIP-KBEAUTY-2026: 스탠다드 플랜 ($299)
+# PRO-BULK-9988: 프로 대량스캔 플랜 ($499)
+# q1w2e3r41@3: 대표님 전용 평생 무제한 마스터키 🔥
 VALID_PASSWORDS = ["VIP-KBEAUTY-2026", "PRO-BULK-9988", "q1w2e3r41@3"]
 
 st.sidebar.subheader("🔐 Premium Access")
@@ -48,16 +50,15 @@ is_pro_or_ceo = entered_password in ["PRO-BULK-9988", "q1w2e3r41@3"]
 st.sidebar.markdown("---")
 st.sidebar.subheader("💎 Choose Your Plan")
 
-# 💳 베이직 요금제 버튼 ($299)
+# 💳 스탠다드 요금제 버튼 ($299)
 st.sidebar.markdown("**Standard Plan ($299/mo)**\nSingle File Scan")
 st.sidebar.link_button("💳 Subscribe Standard", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
 
 st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
-# 💳 프로 요금제 버튼 ($499)
+# 💳 🏆 PRO 대량스캔 요금제 버튼 ($499) - 대표님이 주신 새 주소 완벽 연동! 🔥
 st.sidebar.markdown("**🏆 PRO Bulk Plan ($499/mo)**\nUnlimited Multiple Image/File Uploads")
-# 👉 이곳에 프로 요금제용 검로드 링크가 생성되면 주소를 교체해 주십시오!
-st.sidebar.link_button("🚀 Subscribe PRO Bulk", "https://dahee5.gumroad.com/l/lyibre", use_container_width=True)
+st.sidebar.link_button("🚀 Subscribe PRO Bulk", "https://dahee5.gumroad.com/l/pkoph", use_container_width=True)
 
 # ==========================================
 # 📞 고객 지원 창구
@@ -83,11 +84,11 @@ st.markdown("---")
 
 
 # ==========================================
-# 🛑 철통 방어선 (무료 기회 소진 시 차단)
+# 🛑 철통 방어선 (비밀번호 없는 일반 유저가 3회 다 썼을 때 차단)
 # ==========================================
 if not is_vip and st.session_state.free_uses_left <= 0:
     st.error("🔒 **Free Trial Expired.** You have used all 3 free compliance checks. Please subscribe in the sidebar and enter your VIP/PRO Access Code to unlock unlimited usage.")
-    st.stop()
+    st.stop()  # 웹사이트 가동 중단 및 차단!
 
 if is_vip:
     if entered_password == "q1w2e3r41@3":
@@ -101,7 +102,7 @@ else:
 
 
 # ==========================================
-# 🛡️ 법적 고지
+# 🛡️ 법적 고지 (Disclaimer)
 # ==========================================
 if "disclaimer_agreed" not in st.session_state:
     st.session_state.disclaimer_agreed = False
@@ -125,14 +126,13 @@ else:
     st.subheader("🚀 Compliance Analysis Workspace")
     target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC", "BR"])
     
-    # ⚙️ [핵심 이원화] 프로 플랜 이상이거나 최고 관리자일 때만 다중 파일 업로드 허용!
+    # ⚙️ 프로 등급 및 관리자만 다중 파일 업로드 허용 활성화
     if is_pro_or_ceo:
         uploaded_files = st.file_uploader("2️⃣ Upload Multiple Files (Images / Excels) - [PRO UNLOCKED]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=True)
     else:
         uploaded_file = st.file_uploader("2️⃣ Upload A Single File (Image / Excel) - [Standard Mode]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=False)
         uploaded_files = [uploaded_file] if uploaded_file is not None else []
 
-    # 대량 성분 처리를 위한 통합 리스트 및 파일별 매핑 딕셔너리
     all_ingredients = []
     
     if len(uploaded_files) > 0:
@@ -154,6 +154,7 @@ else:
                     extracted_list = [ing.strip() for ing in response.choices[0].message.content.split(',') if ing.strip()]
                     all_ingredients.extend(extracted_list)
                     
+                    # 📝 추출 성분 표 형태 리스트업 복구본 작동
                     st.markdown(f"##### 📝 Extracted List from {f.name}")
                     st.dataframe(pd.DataFrame({"No.": range(1, len(extracted_list)+1), "Ingredient": extracted_list}), hide_index=True, use_container_width=True)
                 except Exception as e:
@@ -164,7 +165,6 @@ else:
                 st.dataframe(df.head(2))
                 all_ingredients.extend(df.iloc[:, 0].dropna().astype(str).tolist())
 
-        # 중복 성분 제거를 통한 API 호출 최적화
         all_ingredients = list(set(all_ingredients))
 
         if all_ingredients and st.button("🚀 Run 10-Country Compliance Check!", use_container_width=True):
@@ -191,7 +191,7 @@ else:
                             result_df.to_excel(writer, index=False, sheet_name='Compliance_Report')
                         st.download_button("📥 Download Merged Excel Report", data=excel_buffer.getvalue(), file_name=f"Merged_Report_{target_country}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
                         
-                        # 횟수 차감
+                        # 무료 횟수 소진 처리 (마스터키 및 구독자는 제외)
                         if not is_vip:
                             st.session_state.free_uses_left -= 1
                             st.rerun()
