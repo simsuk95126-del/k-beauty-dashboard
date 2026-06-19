@@ -12,8 +12,8 @@ load_dotenv()
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
-# 🛠️ 실시간 업데이트 및 버전 관리 변수
-APP_VERSION = "v6.1.0 (Marketing UI & Popup Integration)"
+# 🛠️ Version & Status variables
+APP_VERSION = "v6.1.1 (Global English & Strict Disclaimer Patch)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -22,7 +22,7 @@ MASTER_KEY = os.environ.get("MASTER_KEY", "q1w2e3r41@3")
 st.set_page_config(page_title="Global K-Beauty Compliance", page_icon="💄", layout="wide")
 
 # ==========================================
-# 🔄 세션 상태 초기화 및 입력값 변경 감지
+# 🔄 Session State Initialization
 # ==========================================
 if "free_uses_left" not in st.session_state:
     st.session_state.free_uses_left = 3
@@ -37,7 +37,7 @@ def reset_results():
     st.session_state.api_result = None
 
 # ==========================================
-# 💸 비용 방어 업데이트: OpenAI Vision API 캐싱 함수
+# 💸 Cost Optimization: OpenAI Vision API Caching
 # ==========================================
 @st.cache_data(show_spinner=False, ttl=3600)
 def extract_ingredients_from_image(file_bytes):
@@ -54,7 +54,7 @@ def extract_ingredients_from_image(file_bytes):
         return None
 
 # ==========================================
-# 📡 검로드 라이선스 검증 함수
+# 📡 Gumroad License Verification Function
 # ==========================================
 def check_license_status(key, increment=False):
     if key == MASTER_KEY:
@@ -97,7 +97,7 @@ def check_license_status(key, increment=False):
     return "INVALID", "❌ Invalid or Refunded License Key."
 
 # ==========================================
-# 📡 시스템 온라인 상태 바
+# 📡 System Online Status Bar
 # ==========================================
 st.sidebar.success(f"🟢 SYSTEM ONLINE (Ver: {APP_VERSION})")
 st.sidebar.markdown(f"🟢 Banned Substances DB: \n{BANNED_SUBSTANCES_STATUS}")
@@ -105,7 +105,7 @@ st.sidebar.markdown(f"🔍 Keyword Matching Engine: \n{KEYWORD_MATCHING_STATUS}"
 st.sidebar.markdown("---")
 
 # ==========================================
-# 🔐 프리미엄 접근창
+# 🔐 Premium Access
 # ==========================================
 st.sidebar.subheader("🔐 Premium Access")
 entered_password = st.sidebar.text_input("Enter your License Key:", type="password")
@@ -143,24 +143,21 @@ else:
 st.sidebar.markdown("---")
 
 # ==========================================
-# 💎 요금제 및 팝업 안내창 로직 (요청 반영)
+# 💎 Subscription Plans & Popup Logic
 # ==========================================
 st.sidebar.subheader("💎 Choose Your Plan")
 
-# 팝업 띄우는 데코레이터 함수 (Streamlit 1.34 이상 지원)
-@st.dialog("⚠️ License Key 안내 및 결제")
+@st.dialog("⚠️ License Key Information & Payment")
 def show_payment_popup(plan_name, link):
-    st.warning("결제가 완료되면 발송되는 **[Gumroad 영수증(Receipt) 이메일]** 내부에 대시보드 무제한 접속을 위한 **License Key (접속코드)**가 포함되어 있습니다.\n\n결제 후 반드시 이메일을 확인해 주세요!")
-    st.link_button(f"👉 {plan_name} 결제창으로 이동하기", link, use_container_width=True)
+    st.warning("Upon successful payment, your **License Key (Access Code)** for unlimited dashboard access will be included in the **[Gumroad Receipt Email]**.\n\nPlease make sure to check your email after payment!")
+    st.link_button(f"👉 Go to {plan_name} Payment Page", link, use_container_width=True)
 
-# Standard 요금제
 if st.sidebar.button("💳 Subscribe Standard ($299/mo)", use_container_width=True):
     show_payment_popup("Standard Plan", "https://dahee5.gumroad.com/l/lyibre")
 st.sidebar.caption("✔️ 50 Scans per month\n\n✔️ Single File Scan & Excel Download")
 
-st.sidebar.markdown("<br>", unsafe_allow_html=True) # 간격 띄우기
+st.sidebar.markdown("<br>", unsafe_allow_html=True)
 
-# PRO 요금제
 if st.sidebar.button("🚀 Subscribe PRO Bulk ($499/mo)", use_container_width=True):
     show_payment_popup("PRO Bulk Plan", "https://dahee5.gumroad.com/l/pkoph")
 st.sidebar.caption("✔️ Unlimited Scans\n\n✔️ Multiple Image/File Uploads & Batch Extraction")
@@ -168,7 +165,7 @@ st.sidebar.caption("✔️ Unlimited Scans\n\n✔️ Multiple Image/File Uploads
 st.sidebar.markdown("---")
 
 # ==========================================
-# 👑 메인 화면: 우리 프로그램의 4대 압도적 장점 (요청 반영)
+# 👑 Main UI: Core Advantages
 # ==========================================
 st.title("🌍 Global K-Beauty Compliance Master")
 st.markdown("##### AI-powered customs compliance checker for US, EU, CN, HALAL and more.")
@@ -178,46 +175,54 @@ st.markdown("### 🌟 Why Choose Our Core Compliance Engine?")
 col_adv1, col_adv2 = st.columns(2)
 
 with col_adv1:
-    st.info("#### 🛡️ 1. Zero-Hallucination (환각 방지)\nAI의 자의적 해석과 거짓 정보를 철저히 차단합니다. 확실하지 않은 성분은 임의로 번역하지 않고 `수동 검증(Verification Required)` 상태로 반환하여 치명적인 통관 오류를 미연에 방지합니다.")
-    st.success("#### 🌐 2. 10-Country Custom Regulation Check\n미국 FDA MoCRA, 유럽 CPNP, 중국 NMPA, 할랄 등 10개국의 공식 금지/제한 성분 DB를 바탕으로 타겟 국가별 적합성을 0.1초 만에 교차 검증하고 경고합니다.")
+    st.info("#### 🛡️ 1. Zero-Hallucination\nStrictly blocks AI's arbitrary interpretations and false information. Unverified ingredients are returned as 'Verification Required' rather than guessed, preventing fatal customs errors.")
+    st.success("#### 🌐 2. 10-Country Custom Regulation Check\nCross-verifies target country compliance (US FDA MoCRA, EU CPNP, China NMPA, Halal, etc.) in 0.1 seconds based on official prohibited/restricted ingredient databases.")
 
 with col_adv2:
-    st.warning("#### 🚫 3. OCR Error Correction (오탈자 방어)\n이미지 파일 스캔 시 발생할 수 있는 글자 깨짐이나 오류 문자를 시스템이 자체적으로 필터링하여, 잘못된 글자가 위험 성분으로 둔갑하는 것을 원천적으로 막아냅니다.")
-    st.error("#### 🇰🇷 4. Official K-Beauty Data Matching\n대한화장품협회 및 식약처 기준의 공식 한국어-INCI 매칭 서버 DB를 1순위로 거치도록 설계되어, 그 어떤 번역기보다 가장 정확한 K-뷰티 표준 성분 명칭을 도출합니다.")
+    st.warning("#### 🚫 3. OCR Error Correction\nAutomatically filters broken characters or typos during image scans, fundamentally preventing misinterpretation of safe ingredients as hazardous due to text extraction errors.")
+    st.error("#### 🇰🇷 4. Official K-Beauty Data Matching\nDesigned to prioritize official Korean-INCI matching server databases (KCA & MFDS standards), providing the most accurate K-Beauty standard ingredient nomenclature.")
 
 st.markdown("---")
 
+# Free trial expiration block
 if not is_vip and st.session_state.free_uses_left <= 0:
     st.error("🔒 Free Trial Expired. Please subscribe in the sidebar and enter your License Key to unlock unlimited usage.")
     st.stop()
 
 # ==========================================
-# 🛡️ 법적 고지
+# 🛡️ STRICT Legal Disclaimer (Blocker)
 # ==========================================
 if "disclaimer_agreed" not in st.session_state:
     st.session_state.disclaimer_agreed = False
 
 if not st.session_state.disclaimer_agreed:
-    st.markdown("⚠️ REQUIRED ACTION: Review Legal Disclaimer", unsafe_allow_html=True)
-    st.warning("⚖️ LEGAL DISCLAIMER: Informational Only. The provided INCI names, compliance statuses, and regulation notices do not constitute legal or official regulatory advice.")
+    st.markdown("### ⚠️ REQUIRED ACTION: Review Legal Disclaimer")
+    st.warning("⚖️ LEGAL DISCLAIMER: Informational Only. The provided INCI names, compliance statuses, and regulation notices do not constitute legal or official regulatory advice. Users must independently verify all data before use.")
     if st.checkbox("I HAVE READ THE LEGAL DISCLAIMER AND AGREE TO THE TERMS OF USE."):
         st.session_state.disclaimer_agreed = True
         st.rerun()
+    
+    # 🌟 [핵심 변경] 면책 조항에 동의하지 않으면 여기서 코드 실행을 완전히 차단합니다.
+    st.stop() 
 else:
     if st.button("⚖️ Review Terms"):
         st.session_state.disclaimer_agreed = False
         st.rerun()
 
 # ==========================================
-# 🚀 메인 작업 공간
+# 🚀 Main Workspace
 # ==========================================
 st.subheader("🚀 Compliance Analysis Workspace")
 target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC", "BR"], on_change=reset_results)
 
-if is_pro_or_ceo:
-    uploaded_files = st.file_uploader("2️⃣ Upload Multiple Files (Images / Excels) - [PRO UNLOCKED]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=True, on_change=reset_results)
+# 🌟 [핵심 변경] 무료 체험판 사용자도 3회 동안 다중 파일 업로드(PRO 기능)를 체험할 수 있도록 로직 병합
+trial_active = (not is_vip and st.session_state.free_uses_left > 0)
+
+if is_pro_or_ceo or trial_active:
+    uploaded_files = st.file_uploader("2️⃣ Upload Files (Single or Multiple) - [PRO / FREE TRIAL UNLOCKED]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=True, on_change=reset_results)
 else:
-    uploaded_file = st.file_uploader("2️⃣ Upload A Single File (Image / Excel) - [Standard Mode]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=False, on_change=reset_results)
+    # Standard Plan User (Only 1 file allowed)
+    uploaded_file = st.file_uploader("2️⃣ Upload A Single File - [Standard Mode]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=False, on_change=reset_results)
     uploaded_files = [uploaded_file] if uploaded_file is not None else []
 
 ingredient_source_map = {}
@@ -258,7 +263,6 @@ if len(uploaded_files) > 0:
 
     unique_ingredients = list(ingredient_source_map.keys())
 
-    # ⚙️ 검사 실행 버튼
     if unique_ingredients and st.button("🚀 Run 10-Country Compliance Check!", use_container_width=True):
         
         if is_vip and not is_pro_or_ceo:
@@ -336,7 +340,7 @@ if len(uploaded_files) > 0:
             st.error("API Connection Failed.")
 
 # ==========================================
-# 📥 결과창 및 다운로드 버튼
+# 📥 Results & Download Section
 # ==========================================
 if st.session_state.api_result is not None:
     res = st.session_state.api_result
