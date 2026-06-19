@@ -13,7 +13,7 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ 실시간 업데이트 및 버전 관리 변수
-APP_VERSION = "v5.5.0 (Hybrid Bulk & Source Tracking)"
+APP_VERSION = "v5.6.0 (Secure Tier Access & Source Tracking)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -38,6 +38,7 @@ st.sidebar.markdown("---")
 # ==========================================
 # 🔐 프리미엄 접근창 
 # ==========================================
+# [V5.6 업데이트] 이번 달 유효한 요금제별 비밀번호 목록
 VALID_PASSWORDS = ["VIP-KBEAUTY-2026", "PRO-BULK-9988", "q1w2e3r41@3"]
 
 st.sidebar.subheader("🔐 Premium Access")
@@ -78,7 +79,7 @@ st.markdown("---")
 
 
 # ==========================================
-# 🛑 철통 방어선 
+# 🛑 철통 방어선 (V5.6 요금제 등급별 완벽 분리)
 # ==========================================
 if not is_vip and st.session_state.free_uses_left <= 0:
     st.error("🔒 **Free Trial Expired.** You have used all 3 free compliance checks. Please subscribe in the sidebar and enter your VIP/PRO Access Code to unlock unlimited usage.")
@@ -89,8 +90,10 @@ if is_vip:
         st.sidebar.success("👑 **CEO Master Key Active! (Unlimited PRO Access)**")
     elif entered_password == "PRO-BULK-9988":
         st.sidebar.success("🏆 **PRO Bulk Member Access Granted!**")
-    else:
+    elif entered_password == "VIP-KBEAUTY-2026": # 👈 [핵심 수정 포인트] 일반 프리미엄 비번 명시!
         st.sidebar.success("🔓 Standard VIP Access Granted!")
+    else:
+        st.sidebar.success("🔓 Premium Access Granted!")
 else:
     st.sidebar.warning(f"🎁 Free Trial Active: {st.session_state.free_uses_left} checks remaining.")
 
@@ -126,7 +129,7 @@ else:
         uploaded_file = st.file_uploader("2️⃣ Upload A Single File (Image / Excel) - [Standard Mode]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=False)
         uploaded_files = [uploaded_file] if uploaded_file is not None else []
 
-    # 🌟 [V5.5 핵심] 성분별 출처 파일을 추적하는 메모장(딕셔너리) 생성
+    # 🌟 [V5.5 핵심 유지] 성분별 출처 파일을 추적하는 메모장(딕셔너리) 생성
     ingredient_source_map = {}
     
     if len(uploaded_files) > 0:
@@ -206,7 +209,7 @@ else:
                     result_df.insert(0, 'No.', range(1, len(result_df) + 1))
                     result_df['Compliance Status'] = result_df['Compliance Status'].apply(lambda x: '🟢 PASS' if x else '🔴 FAIL')
                     
-                    # 🌟 [V5.5 핵심] 출처 파일(Source File) 컬럼 추가 매핑 작업
+                    # 🌟 [V5.5 핵심 유지] 출처 파일(Source File) 컬럼 추가 매핑 작업
                     result_df['Source File'] = result_df['Original Ingredient'].apply(
                         lambda x: ", ".join(list(ingredient_source_map.get(x, [])))
                     )
