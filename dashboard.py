@@ -90,7 +90,7 @@ if is_vip:
         st.sidebar.success("👑 **CEO Master Key Active! (Unlimited PRO Access)**")
     elif entered_password == "PRO-BULK-9988":
         st.sidebar.success("🏆 **PRO Bulk Member Access Granted!**")
-    elif entered_password == "VIP-KBEAUTY-2026": # 👈 [핵심 수정 포인트] 일반 프리미엄 비번 명시!
+    elif entered_password == "VIP-KBEAUTY-2026": 
         st.sidebar.success("🔓 Standard VIP Access Granted!")
     else:
         st.sidebar.success("🔓 Premium Access Granted!")
@@ -209,7 +209,7 @@ else:
                     result_df.insert(0, 'No.', range(1, len(result_df) + 1))
                     result_df['Compliance Status'] = result_df['Compliance Status'].apply(lambda x: '🟢 PASS' if x else '🔴 FAIL')
                     
-                    # 🌟 [V5.5 핵심 유지] 출처 파일(Source File) 컬럼 추가 매핑 작업
+                    # 🌟 [UI 화면용] Source File 컬럼: 여러 파일일 경우 쉼표(,)로 묶어서 표시
                     result_df['Source File'] = result_df['Original Ingredient'].apply(
                         lambda x: ", ".join(list(ingredient_source_map.get(x, [])))
                     )
@@ -217,14 +217,27 @@ else:
                     # 엑셀 컬럼 순서 예쁘게 재배치
                     result_df = result_df[['No.', 'Original Ingredient', 'INCI Name', 'Compliance Status', 'Source File', 'Regulation Notice']]
                     
+                    # 💥 [신규 핵심 기능] 엑셀 다운로드용 데이터프레임 복사 및 행 분리(explode) 최적화
+                    df_excel = result_df.copy()
+                    # 1. 쉼표 문자열을 다시 파이썬 리스트로 변환
+                    df_excel['Source File'] = df_excel['Source File'].apply(
+                        lambda x: [f.strip() for f in str(x).split(",")] if pd.notnull(x) else []
+                    )
+                    # 2. 리스트 요소 개수만큼 행을 쪼개기 (자동필터 최적화)
+                    df_excel = df_excel.explode('Source File').reset_index(drop=True)
+                    # 3. 쪼개진 행 수에 맞춰 No. 재정렬
+                    df_excel['No.'] = range(1, len(df_excel) + 1)
+                    
+                    # 엑셀 파일 변환 버퍼 저장
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                        result_df.to_excel(writer, index=False, sheet_name='Compliance_Report')
+                        # 화면용(result_df)이 아닌 쪼개진 데이터(df_excel)를 엑셀에 씁니다.
+                        df_excel.to_excel(writer, index=False, sheet_name='Compliance_Report')
                     
                     # 메모리 저장
                     st.session_state.api_result = {
-                        "df": result_df,
-                        "excel_data": excel_buffer.getvalue(),
+                        "df": result_df, # 화면에 띄울 원본 데이터 (필터용)
+                        "excel_data": excel_buffer.getvalue(), # 다운로드 시 나갈 쪼개진 엑셀 데이터
                         "status": result_data['compliance_status'],
                         "failed_count": result_data['failed_count'],
                         "target": target_country
@@ -254,6 +267,32 @@ else:
         else:
             st.error(f"🚨 Warning! {res['failed_count']} ingredients hit the regulation filters for {res['target']}.")
         
-        st.dataframe(res["df"], use_container_width=True, hide_index=True)
+        # 💥 [신규 핵심 기능] 화면 내 파일별 필터링 (Multiselect)
+        df_display = res["df"].copy()
+        
+        # 고유한 업로드 파일명 목록 추출
+        all_files = set()
+        for files_str in df_display["Source File"].dropna():
+            all_files.update([f.strip() for f in str(files_str).split(",")])
+        unique_files = sorted(list(all_files))
 
-        st.download_button("📥 Download Merged Excel Report", data=res["excel_data"], file_name=f"Merged_Report_{res['target']}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        st.markdown("##### 🔍 Data Filter")
+        selected_files = st.multiselect(
+            "Select specific files to view their analysis results (Leave empty to view all):",
+            options=unique_files,
+            default=[]
+        )
+
+        # 유저가 파일을 선택했다면 해당 파일이 포함된 행만 필터링
+        if selected_files:
+            mask = df_display["Source File"].apply(
+                lambda x: any(sf in x for sf in selected_files) if pd.notnull(x) else False
+            )
+            df_display = df_display[mask]
+
+        # 필터가 적용된 표를 출력
+        st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        # 다운로드 버튼 (미리 쪼개어둔 자동필터 최적화 버퍼 데이터 다운로드)
+        st.download_button("📥 Download Excel Report (Auto-Filter Optimized)", data=res["excel_data"], file_name=f"Merged_Report_{res['target']}_Filtered.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
