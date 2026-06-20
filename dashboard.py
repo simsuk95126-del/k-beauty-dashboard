@@ -13,7 +13,7 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ Version & Status variables
-APP_VERSION = "v6.1.1 (Global English & Strict Disclaimer Patch)"
+APP_VERSION = "v6.1.2 (Test Server Popup Patch)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -32,9 +32,27 @@ if "current_auth_msg" not in st.session_state:
     st.session_state.current_auth_msg = None
 if "current_auth_tier" not in st.session_state:
     st.session_state.current_auth_tier = "INVALID"
+    
+# 🌟 테스트 서버 팝업 확인 여부 세션
+if "test_notice_shown" not in st.session_state:
+    st.session_state.test_notice_shown = False
 
 def reset_results():
     st.session_state.api_result = None
+
+# ==========================================
+# 🚨 [신규] 테스트 서버 안내 팝업 (Test Notice)
+# ==========================================
+@st.dialog("🚧 System Notice: Test Server")
+def show_test_server_popup():
+    st.warning("현재 이 시스템은 **테스트 중(Testing in progress)** 입니다. 일부 기능이 임시적으로 제한되거나 불안정할 수 있습니다.\n\nThis system is currently running in a **test environment**. Temporary disruptions may occur.")
+    if st.button("확인 (Acknowledge)", use_container_width=True):
+        st.session_state.test_notice_shown = True
+        st.rerun()
+
+# 팝업을 아직 안 봤다면 무조건 화면 중앙에 띄움
+if not st.session_state.test_notice_shown:
+    show_test_server_popup()
 
 # ==========================================
 # 💸 Cost Optimization: OpenAI Vision API Caching
@@ -99,6 +117,7 @@ def check_license_status(key, increment=False):
 # ==========================================
 # 📡 System Online Status Bar
 # ==========================================
+st.sidebar.error("🚧 STATUS: TEST SERVER")  # 🌟 사이드바에 테스트 서버 뱃지 영구 노출
 st.sidebar.success(f"🟢 SYSTEM ONLINE (Ver: {APP_VERSION})")
 st.sidebar.markdown(f"🟢 Banned Substances DB: \n{BANNED_SUBSTANCES_STATUS}")
 st.sidebar.markdown(f"🔍 Keyword Matching Engine: \n{KEYWORD_MATCHING_STATUS}")
@@ -202,7 +221,6 @@ if not st.session_state.disclaimer_agreed:
         st.session_state.disclaimer_agreed = True
         st.rerun()
     
-    # 🌟 [핵심 변경] 면책 조항에 동의하지 않으면 여기서 코드 실행을 완전히 차단합니다.
     st.stop() 
 else:
     if st.button("⚖️ Review Terms"):
@@ -215,13 +233,11 @@ else:
 st.subheader("🚀 Compliance Analysis Workspace")
 target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC", "BR"], on_change=reset_results)
 
-# 🌟 [핵심 변경] 무료 체험판 사용자도 3회 동안 다중 파일 업로드(PRO 기능)를 체험할 수 있도록 로직 병합
 trial_active = (not is_vip and st.session_state.free_uses_left > 0)
 
 if is_pro_or_ceo or trial_active:
     uploaded_files = st.file_uploader("2️⃣ Upload Files (Single or Multiple) - [PRO / FREE TRIAL UNLOCKED]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=True, on_change=reset_results)
 else:
-    # Standard Plan User (Only 1 file allowed)
     uploaded_file = st.file_uploader("2️⃣ Upload A Single File - [Standard Mode]", type=['csv', 'xlsx', 'jpg', 'jpeg', 'png'], accept_multiple_files=False, on_change=reset_results)
     uploaded_files = [uploaded_file] if uploaded_file is not None else []
 
