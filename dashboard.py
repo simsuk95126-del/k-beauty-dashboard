@@ -13,7 +13,7 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
 # 🛠️ Version & Status variables
-APP_VERSION = "v6.1.2 (Test Server Popup Patch)"
+APP_VERSION = "v6.1.3 (Brazil Target Removed)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -231,7 +231,9 @@ else:
 # 🚀 Main Workspace
 # ==========================================
 st.subheader("🚀 Compliance Analysis Workspace")
-target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC", "BR"], on_change=reset_results)
+
+# 🌟 브라질(BR) 완전 삭제 적용됨 🌟
+target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC"], on_change=reset_results)
 
 trial_active = (not is_vip and st.session_state.free_uses_left > 0)
 
