@@ -12,8 +12,8 @@ load_dotenv()
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
-# 🛠️ Version & Status variables
-APP_VERSION = "v6.1.3 (Brazil Target Removed)"
+# 🛠️ Version & Status variables (V7 업그레이드 반영)
+APP_VERSION = "v7.0.0 (3-Tier Status Visualizer Active)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -41,7 +41,7 @@ def reset_results():
     st.session_state.api_result = None
 
 # ==========================================
-# 🚨 [신규] 테스트 서버 안내 팝업 (Test Notice)
+# 🚨 테스트 서버 안내 팝업 (Test Notice)
 # ==========================================
 @st.dialog("🚧 System Notice: Test Server")
 def show_test_server_popup():
@@ -117,7 +117,7 @@ def check_license_status(key, increment=False):
 # ==========================================
 # 📡 System Online Status Bar
 # ==========================================
-st.sidebar.error("🚧 STATUS: TEST SERVER")  # 🌟 사이드바에 테스트 서버 뱃지 영구 노출
+st.sidebar.error("🚧 STATUS: TEST SERVER")
 st.sidebar.success(f"🟢 SYSTEM ONLINE (Ver: {APP_VERSION})")
 st.sidebar.markdown(f"🟢 Banned Substances DB: \n{BANNED_SUBSTANCES_STATUS}")
 st.sidebar.markdown(f"🔍 Keyword Matching Engine: \n{KEYWORD_MATCHING_STATUS}")
@@ -220,7 +220,6 @@ if not st.session_state.disclaimer_agreed:
     if st.checkbox("I HAVE READ THE LEGAL DISCLAIMER AND AGREE TO THE TERMS OF USE."):
         st.session_state.disclaimer_agreed = True
         st.rerun()
-    
     st.stop() 
 else:
     if st.button("⚖️ Review Terms"):
@@ -232,7 +231,7 @@ else:
 # ==========================================
 st.subheader("🚀 Compliance Analysis Workspace")
 
-# 🌟 브라질(BR) 완전 삭제 적용됨 🌟
+# 🌟 브라질(BR) 완전 삭제 적용 상태 유지
 target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC"], on_change=reset_results)
 
 trial_active = (not is_vip and st.session_state.free_uses_left > 0)
@@ -316,9 +315,33 @@ if len(uploaded_files) > 0:
                 result_data = api_response.json()
                 result_df = pd.DataFrame(result_data['report_details'])
                 
-                result_df.rename(columns={'original_ingredient': 'Original Ingredient', 'inci_name': 'INCI Name', 'is_safe': 'Compliance Status', 'regulation_notice': 'Regulation Notice'}, inplace=True)
+                result_df.rename(columns={
+                    'original_ingredient': 'Original Ingredient', 
+                    'inci_name': 'INCI Name', 
+                    'is_safe': 'Compliance Status', 
+                    'regulation_notice': 'Regulation Notice'
+                }, inplace=True)
+                
                 result_df.insert(0, 'No.', range(1, len(result_df) + 1))
-                result_df['Compliance Status'] = result_df['Compliance Status'].apply(lambda x: '🟢 PASS' if x else '🔴 FAIL')
+                
+                # ============================================================
+                # 💡 [대표님 핵심 기획] 금지/제한 3단계 상태 아이콘 자동 변환 로직
+                # ============================================================
+                def determine_status_icon(row):
+                    # 안전한 성분이면 즉시 PASS
+                    if row['Compliance Status'] == True or str(row['Compliance Status']).upper() == 'TRUE':
+                        return '🟢 PASS'
+                    
+                    # 규제 대상 성분 중 사유(Notice)에 Restricted/Limit 문구가 있다면 제한 성분 처리
+                    notice_text = str(row['Regulation Notice']).upper()
+                    if 'RESTRICTED' in notice_text or 'LIMIT' in notice_text:
+                        return '⚠️ RESTRICTED'
+                    
+                    # 그 외 규제 성분은 전면 금지 처리
+                    return '🔴 BANNED'
+                
+                result_df['Compliance Status'] = result_df.apply(determine_status_icon, axis=1)
+                # ============================================================
                 
                 result_df['Source File'] = result_df['Original Ingredient'].apply(
                     lambda x: ", ".join(list(ingredient_source_map.get(x, [])))
@@ -335,10 +358,21 @@ if len(uploaded_files) > 0:
                 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                     df_excel.to_excel(writer, index=False, sheet_name='Compliance_Report')
                 
+                # 💡 대시보드 메인 메시지 분기점 최적화
+                has_banned = '🔴 BANNED' in result_df['Compliance Status'].values
+                has_restricted = '⚠️ RESTRICTED' in result_df['Compliance Status'].values
+                
+                if not has_banned and not has_restricted:
+                    final_status_msg = "PASS"
+                elif has_banned:
+                    final_status_msg = "FAIL"  # 금지가 하나라도 있으면 무조건 전면 경고(FAIL)
+                else:
+                    final_status_msg = "RESTRICTED"  # 배합 한도 성분만 걸린 경우 유연한 경고(RESTRICTED)
+                
                 st.session_state.api_result = {
                     "df": result_df,
                     "excel_data": excel_buffer.getvalue(),
-                    "status": result_data['compliance_status'],
+                    "status": final_status_msg,
                     "failed_count": result_data['failed_count'],
                     "target": target_country
                 }
@@ -358,7 +392,7 @@ if len(uploaded_files) > 0:
             st.error("API Connection Failed.")
 
 # ==========================================
-# 📥 Results & Download Section
+# 📥 Results & Download Section (3단계 시각화 대응부)
 # ==========================================
 if st.session_state.api_result is not None:
     res = st.session_state.api_result
@@ -373,10 +407,13 @@ if st.session_state.api_result is not None:
     else:
         display_df = res['df']
     
+    # 💡 [업그레이드 완료] 메인 결과창 텍스트 메시지도 3단계 상황에 맞춤화 노출
     if res["status"] == "PASS":
-        st.success(f"🎉 Analysis Done! No restricted ingredients found for {res['target']}.")
+        st.success(f"🎉 Analysis Done! No restricted or banned ingredients found for {res['target']}.")
+    elif res["status"] == "RESTRICTED":
+        st.warning(f"⚠️ Warning! {res['failed_count']} ingredients have concentration limits or specific conditions for {res['target']}.")
     else:
-        st.error(f"🚨 Warning! {res['failed_count']} ingredients hit the regulation filters for {res['target']}.")
+        st.error(f"🚨 Critical Alert! {res['failed_count']} prohibited ingredients hit the regulation filters for {res['target']}.")
         
     st.dataframe(display_df, use_container_width=True, hide_index=True)
     
