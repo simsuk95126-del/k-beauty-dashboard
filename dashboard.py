@@ -12,8 +12,8 @@ load_dotenv()
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
-# 🛠️ Version & Status variables (V7.4 핵심 국가 최적화 및 캐나다/브라질 삭제)
-APP_VERSION = "v7.4.0 (Core Markets Optimized)"
+# 🛠️ Version & Status variables
+APP_VERSION = "v7.5.0 (Core Markets Optimized)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -50,7 +50,6 @@ def show_test_server_popup():
         st.session_state.test_notice_shown = True
         st.rerun()
 
-# 팝업을 아직 안 봤다면 무조건 화면 중앙에 띄움
 if not st.session_state.test_notice_shown:
     show_test_server_popup()
 
@@ -195,7 +194,7 @@ col_adv1, col_adv2 = st.columns(2)
 
 with col_adv1:
     st.info("#### 🛡️ 1. Zero-Hallucination\nStrictly blocks AI's arbitrary interpretations and false information. Unverified ingredients are returned as 'Verification Required' rather than guessed, preventing fatal customs errors.")
-    st.success("#### 🌐 2. Global Custom Regulation Check\nCross-verifies target country compliance (US FDA MoCRA, EU CPNP, China NMPA, Halal, etc.) in 0.1 seconds based on official prohibited/restricted ingredient databases.")
+    st.success("#### 🌐 2. Global Custom Regulation Check\nCross-verifies target country compliance in 0.1 seconds based on official prohibited/restricted ingredient databases.")
 
 with col_adv2:
     st.warning("#### 🚫 3. OCR Error Correction\nAutomatically filters broken characters or typos during image scans, fundamentally preventing misinterpretation of safe ingredients as hazardous due to text extraction errors.")
@@ -203,7 +202,6 @@ with col_adv2:
 
 st.markdown("---")
 
-# Free trial expiration block
 if not is_vip and st.session_state.free_uses_left <= 0:
     st.error("🔒 Free Trial Expired. Please subscribe in the sidebar and enter your License Key to unlock unlimited usage.")
     st.stop()
@@ -232,13 +230,12 @@ else:
 st.subheader("🚀 Compliance Analysis Workspace")
 
 # =========================================================================
-# 💡 [캐나다(CA) 완전 삭제 반영] 글로벌 핵심 마켓 리스트
+# 💡 [일본(JP) 완전 삭제 반영] 글로벌 핵심 마켓 리스트
 # =========================================================================
 country_options = {
     "US": "US (Federal FDA MoCRA & California Prop 65 / Toxic-Free Cosmetics Act)",
     "EU": "EU (European Union CPNP)",
     "CN": "CN (China NMPA)",
-    "JP": "JP (Japan PMDA)",
     "ASEAN": "ASEAN (Vietnam, Singapore, Thailand, Malaysia, Indonesia, Philippines, Myanmar, Cambodia, Laos, Brunei)",
     "UK": "UK (United Kingdom SCPN)",
     "SFDA": "SFDA (Saudi Arabia Food and Drug Authority)",
@@ -246,10 +243,7 @@ country_options = {
     "EAC": "EAC (Eurasian Economic Union - Russia, Belarus, Kazakhstan, Armenia, Kyrgyzstan)"
 }
 
-# 사용자에게는 긴 웅장한 풀네임을 노출
 selected_display_name = st.selectbox("1️⃣ Select Target Market", options=list(country_options.values()), on_change=reset_results)
-
-# 백엔드로 전송할 때는 원래의 2글자 숏코드(US, EU 등)로 역추적 매핑하여 에러 원천 차단
 target_country = [key for key, value in country_options.items() if value == selected_display_name][0]
 # =========================================================================
 
@@ -343,9 +337,6 @@ if len(uploaded_files) > 0:
                 
                 result_df.insert(0, 'No.', range(1, len(result_df) + 1))
                 
-                # ============================================================
-                # 💡 금지/제한 3단계 상태 아이콘 파싱 로직
-                # ============================================================
                 def determine_status_icon(row):
                     if row['Compliance Status'] == True or str(row['Compliance Status']).upper() == 'TRUE':
                         return '🟢 PASS'
@@ -357,7 +348,6 @@ if len(uploaded_files) > 0:
                     return '🔴 BANNED'
                 
                 result_df['Compliance Status'] = result_df.apply(determine_status_icon, axis=1)
-                # ============================================================
                 
                 result_df['Source File'] = result_df['Original Ingredient'].apply(
                     lambda x: ", ".join(list(ingredient_source_map.get(x, [])))
