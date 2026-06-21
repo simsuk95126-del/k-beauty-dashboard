@@ -12,8 +12,8 @@ load_dotenv()
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
-# 🛠️ Version & Status variables (V7.3 미국/캘리포니아 통합 및 풀네임 무장)
-APP_VERSION = "v7.3.0 (US/California Integrated & Full Country Names)"
+# 🛠️ Version & Status variables (V7.4 핵심 국가 최적화 및 캐나다/브라질 삭제)
+APP_VERSION = "v7.4.0 (Core Markets Optimized)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -187,7 +187,7 @@ st.sidebar.markdown("---")
 # 👑 Main UI: Core Advantages
 # ==========================================
 st.title("🌍 Global K-Beauty Compliance Master")
-st.markdown("##### AI-powered customs compliance checker for US, EU, CN, HALAL and more.")
+st.markdown("##### AI-powered customs compliance checker for core global markets (US, EU, CN, HALAL, etc.)")
 
 st.markdown("### 🌟 Why Choose Our Core Compliance Engine?")
 
@@ -195,7 +195,7 @@ col_adv1, col_adv2 = st.columns(2)
 
 with col_adv1:
     st.info("#### 🛡️ 1. Zero-Hallucination\nStrictly blocks AI's arbitrary interpretations and false information. Unverified ingredients are returned as 'Verification Required' rather than guessed, preventing fatal customs errors.")
-    st.success("#### 🌐 2. 10-Country Custom Regulation Check\nCross-verifies target country compliance (US FDA MoCRA, EU CPNP, China NMPA, Halal, etc.) in 0.1 seconds based on official prohibited/restricted ingredient databases.")
+    st.success("#### 🌐 2. Global Custom Regulation Check\nCross-verifies target country compliance (US FDA MoCRA, EU CPNP, China NMPA, Halal, etc.) in 0.1 seconds based on official prohibited/restricted ingredient databases.")
 
 with col_adv2:
     st.warning("#### 🚫 3. OCR Error Correction\nAutomatically filters broken characters or typos during image scans, fundamentally preventing misinterpretation of safe ingredients as hazardous due to text extraction errors.")
@@ -232,7 +232,7 @@ else:
 st.subheader("🚀 Compliance Analysis Workspace")
 
 # =========================================================================
-# 💡 [대표님 핵심 기획 완료] 미국/캘리포니아 통합 및 ASEAN 10개국, HALAL 16개국 무축약 풀네임 장전
+# 💡 [캐나다(CA) 완전 삭제 반영] 글로벌 핵심 마켓 리스트
 # =========================================================================
 country_options = {
     "US": "US (Federal FDA MoCRA & California Prop 65 / Toxic-Free Cosmetics Act)",
@@ -240,7 +240,6 @@ country_options = {
     "CN": "CN (China NMPA)",
     "JP": "JP (Japan PMDA)",
     "ASEAN": "ASEAN (Vietnam, Singapore, Thailand, Malaysia, Indonesia, Philippines, Myanmar, Cambodia, Laos, Brunei)",
-    "CA": "CA (Health Canada)",
     "UK": "UK (United Kingdom SCPN)",
     "SFDA": "SFDA (Saudi Arabia Food and Drug Authority)",
     "HALAL": "HALAL (Indonesia, Malaysia, UAE, Saudi Arabia, Turkey, Egypt, Pakistan, Iran, Algeria, Morocco, Oman, Qatar, Kuwait, Bahrain, Jordan, Bangladesh)",
@@ -300,7 +299,7 @@ if len(uploaded_files) > 0:
 
     unique_ingredients = list(ingredient_source_map.keys())
 
-    if unique_ingredients and st.button("🚀 Run 10-Country Compliance Check!", use_container_width=True):
+    if unique_ingredients and st.button("🚀 Run Global Compliance Check!", use_container_width=True):
         
         if is_vip and not is_pro_or_ceo:
             run_tier, run_msg = check_license_status(entered_password, increment=True)
@@ -345,19 +344,16 @@ if len(uploaded_files) > 0:
                 result_df.insert(0, 'No.', range(1, len(result_df) + 1))
                 
                 # ============================================================
-                # 💡 [대표님 기획 완벽 구현] 금지/제한 3단계 상태 아이콘 파싱 로직
+                # 💡 금지/제한 3단계 상태 아이콘 파싱 로직
                 # ============================================================
                 def determine_status_icon(row):
-                    # 안전한 성분이면 즉시 초록불 패스
                     if row['Compliance Status'] == True or str(row['Compliance Status']).upper() == 'TRUE':
                         return '🟢 PASS'
                     
-                    # 배합 한도 제한 성분 문구가 발견되면 노란불 경고
                     notice_text = str(row['Regulation Notice']).upper()
                     if 'RESTRICTED' in notice_text or 'LIMIT' in notice_text:
                         return '⚠️ RESTRICTED'
                     
-                    # 그 외 전면 금지 규제 성분은 빨간불 블로킹
                     return '🔴 BANNED'
                 
                 result_df['Compliance Status'] = result_df.apply(determine_status_icon, axis=1)
@@ -378,16 +374,15 @@ if len(uploaded_files) > 0:
                 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                     df_excel.to_excel(writer, index=False, sheet_name='Compliance_Report')
                 
-                # 💡 결과창 메인 배너의 톤앤매너 분기 처리 개선
                 has_banned = '🔴 BANNED' in result_df['Compliance Status'].values
                 has_restricted = '⚠️ RESTRICTED' in result_df['Compliance Status'].values
                 
                 if not has_banned and not has_restricted:
                     final_status_msg = "PASS"
                 elif has_banned:
-                    final_status_msg = "FAIL"  # 금지 성분이 1개라도 터지면 전면 강력 차단 상태
+                    final_status_msg = "FAIL" 
                 else:
-                    final_status_msg = "RESTRICTED"  # 제한 성분만 검출되었을 때는 위험 경고 유도 상태
+                    final_status_msg = "RESTRICTED" 
                 
                 st.session_state.api_result = {
                     "df": result_df,
@@ -427,7 +422,6 @@ if st.session_state.api_result is not None:
     else:
         display_df = res['df']
     
-    # 💡 [3단계 알림 최적화] 메인 경고 보드 메시지도 매칭 등급에 따라 직관적 차별 노출
     if res["status"] == "PASS":
         st.success(f"🎉 Analysis Done! No restricted or banned ingredients found for {res['target']}.")
     elif res["status"] == "RESTRICTED":
