@@ -12,8 +12,8 @@ load_dotenv()
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 API_URL = "https://k-beauty-api.onrender.com/api/v1/compliance-report"
 
-# 🛠️ Version & Status variables (V7 업그레이드 반영)
-APP_VERSION = "v7.0.0 (3-Tier Status Visualizer Active)"
+# 🛠️ Version & Status variables (V7.3 미국/캘리포니아 통합 및 풀네임 무장)
+APP_VERSION = "v7.3.0 (US/California Integrated & Full Country Names)"
 BANNED_SUBSTANCES_STATUS = "June 2026 (Latest)"
 KEYWORD_MATCHING_STATUS = "June 2026 (Synced)"
 
@@ -231,8 +231,28 @@ else:
 # ==========================================
 st.subheader("🚀 Compliance Analysis Workspace")
 
-# 🌟 브라질(BR) 완전 삭제 적용 상태 유지
-target_country = st.selectbox("1️⃣ Select Target Market", ["US", "EU", "CN", "JP", "ASEAN", "CA", "UK", "SFDA", "HALAL", "EAC"], on_change=reset_results)
+# =========================================================================
+# 💡 [대표님 핵심 기획 완료] 미국/캘리포니아 통합 및 ASEAN 10개국, HALAL 16개국 무축약 풀네임 장전
+# =========================================================================
+country_options = {
+    "US": "US (Federal FDA MoCRA & California Prop 65 / Toxic-Free Cosmetics Act)",
+    "EU": "EU (European Union CPNP)",
+    "CN": "CN (China NMPA)",
+    "JP": "JP (Japan PMDA)",
+    "ASEAN": "ASEAN (Vietnam, Singapore, Thailand, Malaysia, Indonesia, Philippines, Myanmar, Cambodia, Laos, Brunei)",
+    "CA": "CA (Health Canada)",
+    "UK": "UK (United Kingdom SCPN)",
+    "SFDA": "SFDA (Saudi Arabia Food and Drug Authority)",
+    "HALAL": "HALAL (Indonesia, Malaysia, UAE, Saudi Arabia, Turkey, Egypt, Pakistan, Iran, Algeria, Morocco, Oman, Qatar, Kuwait, Bahrain, Jordan, Bangladesh)",
+    "EAC": "EAC (Eurasian Economic Union - Russia, Belarus, Kazakhstan, Armenia, Kyrgyzstan)"
+}
+
+# 사용자에게는 긴 웅장한 풀네임을 노출
+selected_display_name = st.selectbox("1️⃣ Select Target Market", options=list(country_options.values()), on_change=reset_results)
+
+# 백엔드로 전송할 때는 원래의 2글자 숏코드(US, EU 등)로 역추적 매핑하여 에러 원천 차단
+target_country = [key for key, value in country_options.items() if value == selected_display_name][0]
+# =========================================================================
 
 trial_active = (not is_vip and st.session_state.free_uses_left > 0)
 
@@ -325,19 +345,19 @@ if len(uploaded_files) > 0:
                 result_df.insert(0, 'No.', range(1, len(result_df) + 1))
                 
                 # ============================================================
-                # 💡 [대표님 핵심 기획] 금지/제한 3단계 상태 아이콘 자동 변환 로직
+                # 💡 [대표님 기획 완벽 구현] 금지/제한 3단계 상태 아이콘 파싱 로직
                 # ============================================================
                 def determine_status_icon(row):
-                    # 안전한 성분이면 즉시 PASS
+                    # 안전한 성분이면 즉시 초록불 패스
                     if row['Compliance Status'] == True or str(row['Compliance Status']).upper() == 'TRUE':
                         return '🟢 PASS'
                     
-                    # 규제 대상 성분 중 사유(Notice)에 Restricted/Limit 문구가 있다면 제한 성분 처리
+                    # 배합 한도 제한 성분 문구가 발견되면 노란불 경고
                     notice_text = str(row['Regulation Notice']).upper()
                     if 'RESTRICTED' in notice_text or 'LIMIT' in notice_text:
                         return '⚠️ RESTRICTED'
                     
-                    # 그 외 규제 성분은 전면 금지 처리
+                    # 그 외 전면 금지 규제 성분은 빨간불 블로킹
                     return '🔴 BANNED'
                 
                 result_df['Compliance Status'] = result_df.apply(determine_status_icon, axis=1)
@@ -358,16 +378,16 @@ if len(uploaded_files) > 0:
                 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                     df_excel.to_excel(writer, index=False, sheet_name='Compliance_Report')
                 
-                # 💡 대시보드 메인 메시지 분기점 최적화
+                # 💡 결과창 메인 배너의 톤앤매너 분기 처리 개선
                 has_banned = '🔴 BANNED' in result_df['Compliance Status'].values
                 has_restricted = '⚠️ RESTRICTED' in result_df['Compliance Status'].values
                 
                 if not has_banned and not has_restricted:
                     final_status_msg = "PASS"
                 elif has_banned:
-                    final_status_msg = "FAIL"  # 금지가 하나라도 있으면 무조건 전면 경고(FAIL)
+                    final_status_msg = "FAIL"  # 금지 성분이 1개라도 터지면 전면 강력 차단 상태
                 else:
-                    final_status_msg = "RESTRICTED"  # 배합 한도 성분만 걸린 경우 유연한 경고(RESTRICTED)
+                    final_status_msg = "RESTRICTED"  # 제한 성분만 검출되었을 때는 위험 경고 유도 상태
                 
                 st.session_state.api_result = {
                     "df": result_df,
@@ -392,7 +412,7 @@ if len(uploaded_files) > 0:
             st.error("API Connection Failed.")
 
 # ==========================================
-# 📥 Results & Download Section (3단계 시각화 대응부)
+# 📥 Results & Download Section
 # ==========================================
 if st.session_state.api_result is not None:
     res = st.session_state.api_result
@@ -407,7 +427,7 @@ if st.session_state.api_result is not None:
     else:
         display_df = res['df']
     
-    # 💡 [업그레이드 완료] 메인 결과창 텍스트 메시지도 3단계 상황에 맞춤화 노출
+    # 💡 [3단계 알림 최적화] 메인 경고 보드 메시지도 매칭 등급에 따라 직관적 차별 노출
     if res["status"] == "PASS":
         st.success(f"🎉 Analysis Done! No restricted or banned ingredients found for {res['target']}.")
     elif res["status"] == "RESTRICTED":
