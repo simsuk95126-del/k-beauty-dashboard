@@ -3,9 +3,11 @@ uvicorn
 pandas
 openai
 python-dotenv
-
+apscheduler
 streamlit
-pandas
-openai
+requests
 openpyxl
-python-dotenv
+numpy
+pdfplumber
+xlrd
+pydantic
