@@ -17,7 +17,7 @@ from openpyxl.utils import get_column_letter
 
 
 st.set_page_config(
-    page_title="Global K-Beauty Compliance",
+    page_title="Global K-Beauty Regulatory Screening",
     page_icon="💄",
     layout="wide",
 )
@@ -28,7 +28,7 @@ st.set_page_config(
 # ============================================================
 load_dotenv()
 
-APP_VERSION = "v8.0.0 (Country Review Workflow)"
+APP_VERSION = "v8.1.0 (Screening Decision Workflow)"
 API_BASE_URL = os.environ.get(
     "API_BASE_URL",
     "https://k-beauty-api.onrender.com",
@@ -66,35 +66,43 @@ COUNTRY_OPTIONS = {
 }
 
 STATUS_DISPLAY = {
-    "PASS": "🟢 PASS",
-    "BANNED": "🔴 BANNED",
-    "RESTRICTED": "🟠 RESTRICTED",
-    "WARNING_REQUIRED": "🟡 WARNING REQUIRED",
-    "REVIEW_REQUIRED": "🟣 MANUAL REVIEW",
-    "VERIFICATION_REQUIRED": "⚪ VERIFICATION REQUIRED",
-    "REGULATED": "🔵 REGULATED",
+    "PASS": "🟢 현재 DB 기준 명시적 규제 일치 없음",
+    "BANNED": "🔴 중단 권고",
+    "RESTRICTED": "🟠 조건 확인 필요",
+    "WARNING_REQUIRED": "🟡 표시·통지 조건 확인 필요",
+    "REVIEW_REQUIRED": "🟣 전문가 검토 권고",
+    "VERIFICATION_REQUIRED": "⚪ 전문가 검토 권고",
+    "REGULATED": "🔵 규제조건 확인 필요",
+}
+
+SCREENING_DECISION_DISPLAY = {
+    "STOP_RECOMMENDED": "🔴 중단 권고",
+    "CONDITIONAL_REVIEW": "🟠 조건 확인 필요",
+    "EXPERT_REVIEW_RECOMMENDED": "🟣 전문가 검토 권고",
+    "NO_REGULATORY_MATCH": "🟢 현재 DB 기준 명시적 규제 일치 없음",
 }
 
 OVERALL_MESSAGE = {
     "PASS": (
-        "🎉 No matching regulated ingredient was found in the selected "
-        "market's loaded databases."
+        "현재 로드된 DB에서는 명시적인 금지·제한 일치가 발견되지 "
+        "않았습니다. 이는 수출·수입·판매 가능 승인이나 안전성 보증이 "
+        "아닙니다."
     ),
     "FAIL": (
-        "🚨 One or more ingredients matched a confirmed prohibited "
-        "ingredient record."
+        "확정 금지성분 기록과 일치했습니다. 현재 상태로 사업 진행을 "
+        "중단하고 원료 또는 제품 변경을 우선 검토하십시오."
     ),
     "RESTRICTED": (
-        "⚠️ One or more ingredients are subject to confirmed restrictions "
-        "or use conditions."
+        "제한조건이 있는 성분이 발견됐습니다. 실제 농도, 제품 유형, "
+        "사용 부위와 대상 소비자를 확인해야 합니다."
     ),
     "WARNING_REQUIRED": (
-        "⚠️ One or more ingredients may require a warning, notification, "
-        "or labeling action."
+        "표시, 경고, 통지 또는 기타 조치 가능성이 확인됐습니다. "
+        "시장별 요구사항을 추가 확인해야 합니다."
     ),
     "REVIEW_REQUIRED": (
-        "🟣 One or more ingredients require manual regulatory verification "
-        "before a final decision."
+        "자동 스크리닝만으로 결론을 확정할 수 없습니다. 공식 규정과 "
+        "제품 조건에 대한 전문가 검토를 권고합니다."
     ),
 }
 
@@ -134,6 +142,13 @@ def normalize_status(value: Any) -> str:
 def status_display(value: Any) -> str:
     status = normalize_status(value)
     return STATUS_DISPLAY.get(status, f"⚪ {status}")
+
+
+def screening_decision_display(value: Any, fallback_status: Any = "") -> str:
+    decision = clean_text(value).upper()
+    if decision in SCREENING_DECISION_DISPLAY:
+        return SCREENING_DECISION_DISPLAY[decision]
+    return status_display(fallback_status)
 
 
 def safe_int(value: Any, default: int = 0) -> int:
@@ -541,6 +556,10 @@ def build_result_dataframe(
             or detail.get("restriction_type")
         )
 
+        screening_decision = clean_text(
+            detail.get("screening_decision")
+        )
+
         rows.append(
             {
                 "No.": index,
@@ -550,7 +569,12 @@ def build_result_dataframe(
                     detail.get("cas_number"),
                     "N/A",
                 ),
-                "Compliance Status": status_display(status),
+                "Screening Decision": screening_decision_display(
+                    screening_decision,
+                    status,
+                ),
+                "Decision Code": screening_decision,
+                "Legacy Status Code": status,
                 "Status Code": status,
                 "Source File": ", ".join(
                     sorted(
@@ -660,8 +684,11 @@ def create_full_report_excel(
             "Value": clean_text(result_data.get("target_market")),
         },
         {
-            "Item": "Overall Status",
-            "Value": clean_text(result_data.get("compliance_status")),
+            "Item": "Screening Decision",
+            "Value": clean_text(
+                result_data.get("screening_decision_label")
+                or result_data.get("screening_decision")
+            ),
         },
         {
             "Item": "Total Checked",
@@ -740,7 +767,11 @@ def create_full_report_excel(
     ]
 
     report_export = result_dataframe.drop(
-        columns=["Status Code"],
+        columns=[
+            "Status Code",
+            "Decision Code",
+            "Legacy Status Code",
+        ],
         errors="ignore",
     )
 
@@ -748,7 +779,7 @@ def create_full_report_excel(
         report_export.to_excel(
             writer,
             index=False,
-            sheet_name="Compliance_Report",
+            sheet_name="Screening_Report",
         )
         pd.DataFrame(summary_rows).to_excel(
             writer,
@@ -844,23 +875,23 @@ def render_status_summary(
 
     columns = st.columns(5)
     columns[0].metric(
-        "PASS",
+        "명시적 일치 없음",
         safe_int(status_counts.get("PASS")),
     )
     columns[1].metric(
-        "BANNED",
+        "중단 권고",
         safe_int(status_counts.get("BANNED")),
     )
     columns[2].metric(
-        "RESTRICTED",
+        "조건 확인",
         safe_int(status_counts.get("RESTRICTED")),
     )
     columns[3].metric(
-        "WARNING",
+        "표시·통지 확인",
         safe_int(status_counts.get("WARNING_REQUIRED")),
     )
     columns[4].metric(
-        "MANUAL REVIEW",
+        "전문가 검토",
         safe_int(
             status_counts.get("REVIEW_REQUIRED")
         )
@@ -1105,7 +1136,7 @@ def run_app() -> None:
     # --------------------------------------------------------
     # 메인 안내
     # --------------------------------------------------------
-    st.title("🌍 Global K-Beauty Compliance Master")
+    st.title("🌍 Global K-Beauty Regulatory Screening")
     st.markdown(
         "##### AI-assisted ingredient normalization and country-specific "
         "regulatory screening"
@@ -1153,11 +1184,13 @@ def run_app() -> None:
     if not st.session_state.disclaimer_agreed:
         st.markdown("### ⚠️ Required Legal Notice")
         st.warning(
-            "This service is an informational screening tool. It is not "
-            "legal advice or an official regulatory determination. "
-            "Users must independently verify current regulations, "
-            "concentration limits, product categories, intended use, "
-            "labeling, notification, and certification requirements."
+            "This service provides preliminary regulatory screening only. "
+            "A result showing no explicit database match is not a safety, "
+            "import, export, sale, registration, customs, or legal-"
+            "compliance approval. Users must independently verify current "
+            "regulations, actual concentrations, product category, intended "
+            "use, labeling, notification, registration, certification, and "
+            "other official requirements before commercial action."
         )
 
         if st.checkbox(
@@ -1175,7 +1208,7 @@ def run_app() -> None:
     # --------------------------------------------------------
     # 검사 작업영역
     # --------------------------------------------------------
-    st.subheader("🚀 Compliance Analysis Workspace")
+    st.subheader("🚀 Regulatory Screening Workspace")
 
     selected_display_name = st.selectbox(
         "1️⃣ Select Target Market",
@@ -1259,7 +1292,7 @@ def run_app() -> None:
         run_clicked = (
             bool(unique_ingredients)
             and st.button(
-                "🚀 Run Global Compliance Check",
+                "🚀 Run Regulatory Screening",
                 use_container_width=True,
             )
         )
@@ -1373,6 +1406,9 @@ def run_app() -> None:
                     "status": clean_text(
                         result_data.get("compliance_status")
                     ),
+                    "screening_decision": clean_text(
+                        result_data.get("screening_decision")
+                    ),
                     "target": target_country,
                     "result_data": result_data,
                 }
@@ -1407,7 +1443,7 @@ def run_app() -> None:
         result_data = result["result_data"]
 
         st.markdown("---")
-        st.subheader("📊 Compliance Result")
+        st.subheader("📊 Regulatory Screening Result")
 
         render_status_summary(
             result_dataframe,
@@ -1452,7 +1488,7 @@ def run_app() -> None:
             "Original Ingredient",
             "INCI Name",
             "CAS Number",
-            "Compliance Status",
+            "Screening Decision",
             "Source File",
             "Regulation Reason",
             "Regulation Notice",
@@ -1474,10 +1510,10 @@ def run_app() -> None:
 
         with download_columns[0]:
             st.download_button(
-                "📥 Download Full Compliance Report",
+                "📥 Download Regulatory Screening Report",
                 data=result["excel_data"],
                 file_name=(
-                    f"Compliance_Report_{result['target']}.xlsx"
+                    f"Regulatory_Screening_Report_{result['target']}.xlsx"
                 ),
                 mime=(
                     "application/vnd.openxmlformats-officedocument."
