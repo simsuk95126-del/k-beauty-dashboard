@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import re
 import time
 import uuid
 from typing import Any
@@ -28,7 +29,7 @@ st.set_page_config(
 # ============================================================
 load_dotenv()
 
-APP_VERSION = "v8.1.0 (Screening Decision Workflow)"
+APP_VERSION = "v8.2.0 (Source Traceability Workflow)"
 API_BASE_URL = os.environ.get(
     "API_BASE_URL",
     "https://k-beauty-api.onrender.com",
@@ -163,6 +164,28 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def safe_filename_part(value: Any, default: str = "report") -> str:
+    text = clean_text(value, default)
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text)
+    return text.strip("._-") or default
+
+
+def official_sources_dataframe(result_data: dict[str, Any]) -> pd.DataFrame:
+    rows: list[dict[str, str]] = []
+    for source in result_data.get("official_sources") or []:
+        if not isinstance(source, dict):
+            continue
+        rows.append(
+            {
+                "Authority": clean_text(source.get("authority")),
+                "Official Source": clean_text(source.get("title")),
+                "Official URL": clean_text(source.get("url")),
+                "Scope Note": clean_text(source.get("scope_note")),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def reset_results() -> None:
@@ -650,6 +673,22 @@ def format_workbook(writer: pd.ExcelWriter) -> None:
                 vertical="center",
             )
 
+        header_columns = {
+            clean_text(cell.value): cell.column
+            for cell in worksheet[1]
+        }
+        official_url_column = header_columns.get("Official URL")
+        if official_url_column:
+            for row_index in range(2, worksheet.max_row + 1):
+                url_cell = worksheet.cell(
+                    row=row_index,
+                    column=official_url_column,
+                )
+                url = clean_text(url_cell.value)
+                if url.startswith("https://"):
+                    url_cell.hyperlink = url
+                    url_cell.style = "Hyperlink"
+
         for column_index, column_cells in enumerate(
             worksheet.columns,
             start=1,
@@ -677,8 +716,39 @@ def create_full_report_excel(
     result_data: dict[str, Any],
 ) -> bytes:
     output = io.BytesIO()
+    sources_dataframe = official_sources_dataframe(result_data)
 
     summary_rows = [
+        {
+            "Item": "Report Number",
+            "Value": clean_text(result_data.get("report_number")),
+        },
+        {
+            "Item": "API Version",
+            "Value": clean_text(result_data.get("api_version")),
+        },
+        {
+            "Item": "Report Schema Version",
+            "Value": clean_text(
+                result_data.get("report_schema_version")
+            ),
+        },
+        {
+            "Item": "Database Version",
+            "Value": clean_text(result_data.get("database_version")),
+        },
+        {
+            "Item": "Database Fingerprint (SHA-256)",
+            "Value": clean_text(
+                result_data.get("database_fingerprint")
+            ),
+        },
+        {
+            "Item": "Source Registry Version",
+            "Value": clean_text(
+                result_data.get("source_registry_version")
+            ),
+        },
         {
             "Item": "Target Market",
             "Value": clean_text(result_data.get("target_market")),
@@ -737,7 +807,7 @@ def create_full_report_excel(
             "Value": clean_text(result_data.get("database_file")),
         },
         {
-            "Item": "Confirmed DB Updated",
+            "Item": "Confirmed DB File Modified",
             "Value": clean_text(
                 result_data.get("database_last_updated")
             ),
@@ -749,7 +819,7 @@ def create_full_report_excel(
             ),
         },
         {
-            "Item": "Review DB Updated",
+            "Item": "Review DB File Modified",
             "Value": clean_text(
                 result_data.get("review_database_last_updated")
             ),
@@ -794,6 +864,13 @@ def create_full_report_excel(
                 sheet_name="Manual_Review",
             )
 
+        if not sources_dataframe.empty:
+            sources_dataframe.to_excel(
+                writer,
+                index=False,
+                sheet_name="Official_Sources",
+            )
+
         format_workbook(writer)
 
     return output.getvalue()
@@ -804,9 +881,18 @@ def create_manual_review_excel(
     result_data: dict[str, Any],
 ) -> bytes:
     output = io.BytesIO()
+    sources_dataframe = official_sources_dataframe(result_data)
 
     instructions = pd.DataFrame(
         [
+            {
+                "Item": "Report Number",
+                "Value": clean_text(result_data.get("report_number")),
+            },
+            {
+                "Item": "Database Version",
+                "Value": clean_text(result_data.get("database_version")),
+            },
             {
                 "Item": "Target Market",
                 "Value": clean_text(result_data.get("target_market")),
@@ -832,7 +918,7 @@ def create_manual_review_excel(
                 ),
             },
             {
-                "Item": "Review DB Updated",
+                "Item": "Review DB File Modified",
                 "Value": clean_text(
                     result_data.get(
                         "review_database_last_updated"
@@ -859,6 +945,12 @@ def create_manual_review_excel(
             index=False,
             sheet_name="Instructions",
         )
+        if not sources_dataframe.empty:
+            sources_dataframe.to_excel(
+                writer,
+                index=False,
+                sheet_name="Official_Sources",
+            )
         format_workbook(writer)
 
     return output.getvalue()
@@ -986,7 +1078,10 @@ def run_app() -> None:
             st.download_button(
                 "📥 Download This Inspection's Manual Review Report",
                 data=manual_review_excel,
-                file_name=f"Manual_Review_{target}.xlsx",
+                file_name=(
+                    f"{safe_filename_part(result.get('report_number'))}_"
+                    "Manual_Review.xlsx"
+                ),
                 mime=(
                     "application/vnd.openxmlformats-officedocument."
                     "spreadsheetml.sheet"
@@ -1409,6 +1504,12 @@ def run_app() -> None:
                     "screening_decision": clean_text(
                         result_data.get("screening_decision")
                     ),
+                    "report_number": clean_text(
+                        result_data.get("report_number")
+                    ),
+                    "database_version": clean_text(
+                        result_data.get("database_version")
+                    ),
                     "target": target_country,
                     "result_data": result_data,
                 }
@@ -1431,7 +1532,7 @@ def run_app() -> None:
             except (requests.RequestException, RuntimeError, ValueError) as exc:
                 progress_bar.empty()
                 status_text.empty()
-                st.error(f"Compliance analysis failed: {exc}")
+                st.error(f"Regulatory screening failed: {exc}")
 
     # --------------------------------------------------------
     # 검사 결과
@@ -1444,6 +1545,17 @@ def run_app() -> None:
 
         st.markdown("---")
         st.subheader("📊 Regulatory Screening Result")
+        report_number = clean_text(
+            result_data.get("report_number"),
+            "REPORT-NUMBER-UNAVAILABLE",
+        )
+        database_version = clean_text(
+            result_data.get("database_version"),
+            "DATABASE-VERSION-UNAVAILABLE",
+        )
+        st.caption(
+            f"Report No.: {report_number} · DB Version: {database_version}"
+        )
 
         render_status_summary(
             result_dataframe,
@@ -1513,7 +1625,8 @@ def run_app() -> None:
                 "📥 Download Regulatory Screening Report",
                 data=result["excel_data"],
                 file_name=(
-                    f"Regulatory_Screening_Report_{result['target']}.xlsx"
+                    f"{safe_filename_part(result.get('report_number'))}_"
+                    "Regulatory_Screening_Report.xlsx"
                 ),
                 mime=(
                     "application/vnd.openxmlformats-officedocument."
@@ -1531,7 +1644,8 @@ def run_app() -> None:
                     "🟣 Download Manual Review Report",
                     data=result["manual_review_excel"],
                     file_name=(
-                        f"Manual_Review_{result['target']}.xlsx"
+                        f"{safe_filename_part(result.get('report_number'))}_"
+                        "Manual_Review.xlsx"
                     ),
                     mime=(
                         "application/vnd.openxmlformats-officedocument."
@@ -1559,17 +1673,32 @@ def run_app() -> None:
                 use_container_width=True,
             )
 
-        with st.expander("Database and report metadata"):
+        with st.expander("Database, report, and official-source metadata"):
             metadata = pd.DataFrame(
                 [
                     {
+                        "Report Number": clean_text(
+                            result_data.get("report_number")
+                        ),
                         "Target Market": clean_text(
                             result_data.get("target_market")
+                        ),
+                        "API Version": clean_text(
+                            result_data.get("api_version")
+                        ),
+                        "Report Schema": clean_text(
+                            result_data.get("report_schema_version")
+                        ),
+                        "Database Version": clean_text(
+                            result_data.get("database_version")
+                        ),
+                        "DB Fingerprint": clean_text(
+                            result_data.get("database_fingerprint")
                         ),
                         "Confirmed DB": clean_text(
                             result_data.get("database_file")
                         ),
-                        "Confirmed DB Updated": clean_text(
+                        "Confirmed DB File Modified": clean_text(
                             result_data.get(
                                 "database_last_updated"
                             )
@@ -1579,10 +1708,13 @@ def run_app() -> None:
                                 "review_database_file"
                             )
                         ),
-                        "Review DB Updated": clean_text(
+                        "Review DB File Modified": clean_text(
                             result_data.get(
                                 "review_database_last_updated"
                             )
+                        ),
+                        "Source Registry": clean_text(
+                            result_data.get("source_registry_version")
                         ),
                         "Report Generated": clean_text(
                             result_data.get("report_generated_at")
@@ -1595,6 +1727,24 @@ def run_app() -> None:
                 hide_index=True,
                 use_container_width=True,
             )
+
+            sources_dataframe = official_sources_dataframe(result_data)
+            if not sources_dataframe.empty:
+                st.markdown("#### Official regulatory references")
+                for source in result_data.get("official_sources") or []:
+                    if not isinstance(source, dict):
+                        continue
+                    authority = clean_text(source.get("authority"))
+                    title = clean_text(source.get("title"))
+                    url = clean_text(source.get("url"))
+                    scope_note = clean_text(source.get("scope_note"))
+                    if url:
+                        st.markdown(f"- [{authority} — {title}]({url})")
+                    else:
+                        st.markdown(f"- {authority} — {title}")
+                    if scope_note:
+                        st.caption(scope_note)
+
             st.caption(
                 clean_text(result_data.get("disclaimer"))
             )
