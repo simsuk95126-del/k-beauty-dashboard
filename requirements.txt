@@ -1,13 +1,8 @@
-fastapi
-uvicorn
+streamlit
+requests
 pandas
 openai
 python-dotenv
-apscheduler
-streamlit
-requests
 openpyxl
-numpy
-pdfplumber
+python-docx
 xlrd
-pydantic

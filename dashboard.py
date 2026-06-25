@@ -3,23 +3,37 @@ from __future__ import annotations
 import base64
 import io
 import os
-import re
 import time
 import uuid
-from typing import Any
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 import requests
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
+
+from report_builder_v2 import (
+    MARKET_LABELS,
+    STATUS_LABELS,
+    clean_text,
+    create_bundle_zip_bytes,
+    create_product_excel_bytes,
+    create_product_report_bytes,
+    dominant_status,
+    halal_decision,
+    market_decision,
+    normalize_status,
+    safe_filename,
+    safe_int,
+    status_counts,
+)
 
 
 st.set_page_config(
-    page_title="Global K-Beauty Regulatory Screening",
-    page_icon="💄",
+    page_title="Global K-Beauty Compliance",
+    page_icon="🌍",
     layout="wide",
 )
 
@@ -29,11 +43,14 @@ st.set_page_config(
 # ============================================================
 load_dotenv()
 
-APP_VERSION = "v8.2.0 (Source Traceability Workflow)"
+APP_VERSION = "v9.0.0 (Multi-Product · Multi-Market · HALAL)"
 API_BASE_URL = os.environ.get(
     "API_BASE_URL",
     "https://k-beauty-api.onrender.com",
 ).rstrip("/")
+MULTI_COMPLIANCE_API_URL = (
+    f"{API_BASE_URL}/api/v2/multi-compliance-report"
+)
 COMPLIANCE_API_URL = f"{API_BASE_URL}/api/v1/compliance-report"
 DATABASE_STATUS_URL = f"{API_BASE_URL}/api/v1/database-status"
 
@@ -41,266 +58,131 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 MASTER_KEY = os.environ.get("MASTER_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
-COUNTRY_OPTIONS = {
-    "US": (
-        "US "
-        "(Federal FDA / California Prop 65 / Toxic-Free Cosmetics Act)"
-    ),
-    "EU": "EU (Cosmetics Regulation EC No 1223/2009)",
-    "UK": "UK (United Kingdom Cosmetics Regulation / SCPN)",
-    "CN": "CN (China NMPA)",
-    "ASEAN": (
-        "ASEAN "
-        "(Vietnam, Singapore, Thailand, Malaysia, Indonesia, Philippines, "
-        "Myanmar, Cambodia, Laos, Brunei)"
-    ),
-    "SFDA": "SFDA (Saudi Arabia Food and Drug Authority)",
-    "HALAL": (
-        "HALAL "
-        "(Indonesia, Malaysia, UAE, Saudi Arabia, Turkey and other markets)"
-    ),
-    "EAC": (
-        "EAC "
-        "(Eurasian Economic Union: Russia, Belarus, Kazakhstan, "
-        "Armenia, Kyrgyzstan)"
-    ),
+REGULATORY_MARKETS = [
+    "US",
+    "EU",
+    "UK",
+    "CN",
+    "ASEAN",
+    "SFDA",
+    "EAC",
+]
+
+MARKET_OPTIONS = {
+    "US": "미국(US) — FDA / California",
+    "EU": "유럽연합(EU) — Cosmetics Regulation",
+    "UK": "영국(UK) — UK Cosmetics Regulation",
+    "CN": "중국(CN) — NMPA",
+    "ASEAN": "아세안(ASEAN) — ASEAN Cosmetic Directive",
+    "SFDA": "사우디아라비아(SFDA)",
+    "EAC": "유라시아경제연합(EAC)",
 }
 
-STATUS_DISPLAY = {
-    "PASS": "🟢 현재 DB 기준 명시적 규제 일치 없음",
-    "BANNED": "🔴 중단 권고",
-    "RESTRICTED": "🟠 조건 확인 필요",
-    "WARNING_REQUIRED": "🟡 표시·통지 조건 확인 필요",
-    "REVIEW_REQUIRED": "🟣 전문가 검토 권고",
-    "VERIFICATION_REQUIRED": "⚪ 전문가 검토 권고",
-    "REGULATED": "🔵 규제조건 확인 필요",
-}
-
-SCREENING_DECISION_DISPLAY = {
-    "STOP_RECOMMENDED": "🔴 중단 권고",
-    "CONDITIONAL_REVIEW": "🟠 조건 확인 필요",
-    "EXPERT_REVIEW_RECOMMENDED": "🟣 전문가 검토 권고",
-    "NO_REGULATORY_MATCH": "🟢 현재 DB 기준 명시적 규제 일치 없음",
-}
-
-OVERALL_MESSAGE = {
-    "PASS": (
-        "현재 로드된 DB에서는 명시적인 금지·제한 일치가 발견되지 "
-        "않았습니다. 이는 수출·수입·판매 가능 승인이나 안전성 보증이 "
-        "아닙니다."
-    ),
-    "FAIL": (
-        "확정 금지성분 기록과 일치했습니다. 현재 상태로 사업 진행을 "
-        "중단하고 원료 또는 제품 변경을 우선 검토하십시오."
-    ),
-    "RESTRICTED": (
-        "제한조건이 있는 성분이 발견됐습니다. 실제 농도, 제품 유형, "
-        "사용 부위와 대상 소비자를 확인해야 합니다."
-    ),
-    "WARNING_REQUIRED": (
-        "표시, 경고, 통지 또는 기타 조치 가능성이 확인됐습니다. "
-        "시장별 요구사항을 추가 확인해야 합니다."
-    ),
-    "REVIEW_REQUIRED": (
-        "자동 스크리닝만으로 결론을 확정할 수 없습니다. 공식 규정과 "
-        "제품 조건에 대한 전문가 검토를 권고합니다."
-    ),
+STATUS_BADGES = {
+    "PASS": "통과",
+    "FAIL": "부적합",
+    "BANNED": "금지",
+    "RESTRICTED": "제한",
+    "WARNING_REQUIRED": "경고·표시 필요",
+    "REGULATED": "규제 대상",
+    "REVIEW_REQUIRED": "확인 필요",
+    "VERIFICATION_REQUIRED": "명칭·기원 검증 필요",
 }
 
 
 # ============================================================
-# 공통 유틸리티
+# 세션 상태
 # ============================================================
-def clean_text(value: Any, default: str = "") -> str:
-    if value is None:
-        return default
-
-    try:
-        if pd.isna(value):
-            return default
-    except (TypeError, ValueError):
-        pass
-
-    text = " ".join(str(value).strip().split())
-    if text.casefold() in {"", "nan", "none", "null"}:
-        return default
-    return text
-
-
-def normalize_status(value: Any) -> str:
-    status = clean_text(value).upper()
-
-    aliases = {
-        "FAIL": "BANNED",
-        "MANUAL_REVIEW": "REVIEW_REQUIRED",
-        "MANUAL REVIEW": "REVIEW_REQUIRED",
-        "VERIFICATION": "VERIFICATION_REQUIRED",
-        "WARNING": "WARNING_REQUIRED",
-    }
-    return aliases.get(status, status or "VERIFICATION_REQUIRED")
-
-
-def status_display(value: Any) -> str:
-    status = normalize_status(value)
-    return STATUS_DISPLAY.get(status, f"⚪ {status}")
-
-
-def screening_decision_display(value: Any, fallback_status: Any = "") -> str:
-    decision = clean_text(value).upper()
-    if decision in SCREENING_DECISION_DISPLAY:
-        return SCREENING_DECISION_DISPLAY[decision]
-    return status_display(fallback_status)
-
-
-def safe_int(value: Any, default: int = 0) -> int:
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return default
-
-
-def safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def safe_filename_part(value: Any, default: str = "report") -> str:
-    text = clean_text(value, default)
-    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text)
-    return text.strip("._-") or default
-
-
-def official_sources_dataframe(result_data: dict[str, Any]) -> pd.DataFrame:
-    rows: list[dict[str, str]] = []
-    for source in result_data.get("official_sources") or []:
-        if not isinstance(source, dict):
-            continue
-        rows.append(
-            {
-                "Authority": clean_text(source.get("authority")),
-                "Official Source": clean_text(source.get("title")),
-                "Official URL": clean_text(source.get("url")),
-                "Scope Note": clean_text(source.get("scope_note")),
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def reset_results() -> None:
-    st.session_state.api_result = None
-    st.session_state.review_popup_pending = False
-    st.session_state.review_popup_result_id = None
-
-
 def initialize_session_state() -> None:
     defaults = {
-        "free_uses_left": 3,
-        "api_result": None,
+        "free_analysis_units_left": 3,
         "current_auth_msg": None,
         "current_auth_tier": "INVALID",
         "last_entered_key": None,
         "test_notice_shown": False,
         "disclaimer_agreed": False,
-        "review_popup_pending": False,
-        "review_popup_result_id": None,
-        "review_popup_acknowledged_id": None,
+        "analysis_result": None,
     }
-
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
+def reset_results() -> None:
+    st.session_state.analysis_result = None
+
+
 # ============================================================
-# 네트워크 및 인증
+# 인증 및 네트워크
 # ============================================================
-def check_license_status(
+def verify_gumroad_license(
+    product_permalink: str,
     key: str,
     increment: bool = False,
-) -> tuple[str, str]:
+) -> dict:
+    response = requests.post(
+        "https://api.gumroad.com/v2/licenses/verify",
+        data={
+            "product_permalink": product_permalink,
+            "license_key": clean_text(key),
+            "increment_uses_count": "true" if increment else "false",
+        },
+        timeout=12,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return payload if isinstance(payload, dict) else {}
+
+
+def check_license_status(key: str) -> Tuple[str, str, int]:
     key = clean_text(key)
-
     if MASTER_KEY and key == MASTER_KEY:
-        return "PRO", "👑 CEO Master Key Active! (Unlimited)"
-
-    verify_url = "https://api.gumroad.com/v2/licenses/verify"
+        return "PRO", "CEO Master Key 활성화 — 무제한", 0
 
     try:
-        response = requests.post(
-            verify_url,
-            data={
-                "product_permalink": "pkoph",
-                "license_key": key,
-                "increment_uses_count": "false",
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        payload = response.json()
+        pro = verify_gumroad_license("pkoph", key, increment=False)
+        if pro.get("success") and not pro.get("purchase", {}).get("refunded"):
+            return "PRO", "PRO Bulk 이용 가능 — 무제한", 0
 
-        if (
-            payload.get("success")
-            and not payload.get("purchase", {}).get("refunded")
-        ):
-            return "PRO", "🏆 PRO Bulk Access Granted! (Unlimited)"
-    except requests.RequestException:
-        return (
-            "ERROR",
-            "📡 Connection to the license server failed. Please try again.",
+        standard = verify_gumroad_license(
+            "lyibre",
+            key,
+            increment=False,
         )
-    except ValueError:
-        return (
-            "ERROR",
-            "📡 The license server returned an invalid response.",
-        )
-
-    try:
-        response = requests.post(
-            verify_url,
-            data={
-                "product_permalink": "lyibre",
-                "license_key": key,
-                "increment_uses_count": "true" if increment else "false",
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        payload = response.json()
-
-        if (
-            payload.get("success")
-            and not payload.get("purchase", {}).get("refunded")
-        ):
-            uses = safe_int(payload.get("uses"), 0)
-
+        if standard.get("success") and not standard.get("purchase", {}).get("refunded"):
+            uses = safe_int(standard.get("uses"))
             if uses >= 50:
-                return (
-                    "EXPIRED",
-                    "🚫 Monthly limit (50/50) reached. Please upgrade to PRO.",
-                )
-
-            return (
-                "STANDARD",
-                f"🔓 Standard Access Granted! (Remaining: {50 - uses}/50)",
-            )
+                return "EXPIRED", "월 분석 한도 50건을 모두 사용했습니다.", uses
+            return "STANDARD", f"Standard 이용 가능 — 잔여 {50 - uses}/50건", uses
     except requests.RequestException:
-        return (
-            "ERROR",
-            "📡 Connection to the license server failed. Please try again.",
-        )
+        return "ERROR", "라이선스 서버 연결에 실패했습니다.", 0
     except ValueError:
-        return (
-            "ERROR",
-            "📡 The license server returned an invalid response.",
-        )
+        return "ERROR", "라이선스 서버 응답이 올바르지 않습니다.", 0
 
-    return "INVALID", "❌ Invalid or refunded license key."
+    return "INVALID", "유효하지 않거나 환불된 라이선스 키입니다.", 0
+
+
+def consume_standard_units(key: str, units: int) -> Tuple[bool, str]:
+    if units <= 0:
+        return True, ""
+    try:
+        for _ in range(units):
+            payload = verify_gumroad_license(
+                "lyibre",
+                key,
+                increment=True,
+            )
+            if not payload.get("success"):
+                return False, "Standard 분석 건수 반영에 실패했습니다."
+            if safe_int(payload.get("uses")) > 50:
+                return False, "월 분석 한도를 초과했습니다."
+    except (requests.RequestException, ValueError):
+        return False, "라이선스 사용 건수 반영 중 오류가 발생했습니다."
+    return True, ""
 
 
 @st.cache_data(show_spinner=False, ttl=300)
-def fetch_database_status() -> dict[str, Any]:
+def fetch_database_status() -> dict:
     try:
         response = requests.get(DATABASE_STATUS_URL, timeout=10)
         response.raise_for_status()
@@ -310,19 +192,21 @@ def fetch_database_status() -> dict[str, Any]:
         return {}
 
 
+# ============================================================
+# 파일 읽기 및 성분 추출
+# ============================================================
 @st.cache_data(show_spinner=False, ttl=3600)
 def extract_ingredients_from_image(
     file_bytes: bytes,
-) -> tuple[list[str], str | None]:
+) -> Tuple[List[str], Optional[str]]:
     if client is None:
-        return [], "OPENAI_API_KEY is not configured."
+        return [], "OPENAI_API_KEY가 설정되지 않았습니다."
 
     base64_image = base64.b64encode(file_bytes).decode("utf-8")
-    vision_prompt = (
-        "Extract cosmetic ingredient names in their original order. "
-        "Return only the ingredient names separated by a vertical bar (|). "
-        "Never use commas as separators because ingredient names may contain "
-        "commas. Example: 정제수|글리세린|1,2-헥산디올"
+    prompt = (
+        "화장품 전성분 이름을 원래 순서대로 추출하세요. "
+        "성분 사이는 반드시 세로줄(|)로 구분하고 다른 설명은 쓰지 마세요. "
+        "쉼표는 성분명 내부에 포함될 수 있으므로 구분자로 사용하지 마세요."
     )
 
     try:
@@ -332,7 +216,7 @@ def extract_ingredients_from_image(
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": vision_prompt},
+                        {"type": "text", "text": prompt},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -347,30 +231,33 @@ def extract_ingredients_from_image(
             ],
             temperature=0.0,
         )
-
         content = response.choices[0].message.content or ""
-        ingredients = [
-            clean_text(item)
-            for item in content.split("|")
-            if clean_text(item)
-        ]
-        return ingredients, None
+        values = [clean_text(value) for value in content.split("|")]
+        return dedupe_preserve(values), None
     except Exception as exc:
-        return [], f"Image ingredient extraction failed: {exc}"
+        return [], f"이미지 성분 추출 실패: {type(exc).__name__}: {exc}"
 
 
-# ============================================================
-# 업로드 파일 읽기
-# ============================================================
+def dedupe_preserve(values: Sequence[str]) -> List[str]:
+    result: List[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = clean_text(value)
+        key = text.casefold()
+        if text and key not in seen:
+            seen.add(key)
+            result.append(text)
+    return result
+
+
 def read_uploaded_table(uploaded_file: Any) -> pd.DataFrame:
     extension = uploaded_file.name.rsplit(".", 1)[-1].casefold()
+    raw_bytes = uploaded_file.getvalue()
 
     if extension in {"xlsx", "xls"}:
-        return pd.read_excel(uploaded_file)
+        return pd.read_excel(io.BytesIO(raw_bytes))
 
-    raw_bytes = uploaded_file.getvalue()
     encodings = ("utf-8-sig", "utf-8", "cp949", "euc-kr")
-
     for encoding in encodings:
         try:
             return pd.read_csv(
@@ -387,633 +274,225 @@ def read_uploaded_table(uploaded_file: Any) -> pd.DataFrame:
     )
 
 
-def collect_ingredients_from_files(
-    uploaded_files: list[Any],
-) -> tuple[dict[str, set[str]], list[str]]:
-    ingredient_source_map: dict[str, set[str]] = {}
-    errors: list[str] = []
+def extract_product(uploaded_file: Any) -> dict:
+    source_file = uploaded_file.name
+    base_name = Path(source_file).stem
+    product_name = clean_text(base_name, "제품")
+    extension = source_file.rsplit(".", 1)[-1].casefold()
 
-    for uploaded_file in uploaded_files:
-        extension = uploaded_file.name.rsplit(".", 1)[-1].casefold()
+    if extension in {"jpg", "jpeg", "png"}:
+        ingredients, error = extract_ingredients_from_image(
+            uploaded_file.getvalue()
+        )
+        return {
+            "product_name": product_name,
+            "source_file": source_file,
+            "ingredients": ingredients,
+            "preview": pd.DataFrame({"성분명": ingredients[:20]}),
+            "error": error,
+        }
 
-        if extension in {"jpg", "jpeg", "png"}:
-            st.image(
-                uploaded_file,
-                caption=f"Uploaded: {uploaded_file.name}",
-                width=180,
-            )
-            st.info(f"🤖 AI scanning: {uploaded_file.name}")
+    try:
+        dataframe = read_uploaded_table(uploaded_file)
+    except Exception as exc:
+        return {
+            "product_name": product_name,
+            "source_file": source_file,
+            "ingredients": [],
+            "preview": pd.DataFrame(),
+            "error": f"파일 읽기 실패: {type(exc).__name__}: {exc}",
+        }
 
-            ingredients, error = extract_ingredients_from_image(
-                uploaded_file.getvalue()
-            )
+    if dataframe.empty or dataframe.shape[1] == 0:
+        return {
+            "product_name": product_name,
+            "source_file": source_file,
+            "ingredients": [],
+            "preview": dataframe,
+            "error": "읽을 수 있는 성분 행이 없습니다.",
+        }
 
-            if error:
-                errors.append(f"{uploaded_file.name}: {error}")
-                continue
+    ingredients = dedupe_preserve(
+        dataframe.iloc[:, 0]
+        .dropna()
+        .map(clean_text)
+        .tolist()
+    )
+    return {
+        "product_name": product_name,
+        "source_file": source_file,
+        "ingredients": ingredients,
+        "preview": dataframe.head(10),
+        "error": None if ingredients else "유효한 성분이 없습니다.",
+    }
 
-            for ingredient in ingredients:
-                ingredient_source_map.setdefault(
-                    ingredient,
-                    set(),
-                ).add(uploaded_file.name)
 
-            st.markdown(f"##### Extracted from {uploaded_file.name}")
-            st.dataframe(
-                pd.DataFrame(
-                    {
-                        "No.": range(1, len(ingredients) + 1),
-                        "Ingredient": ingredients,
-                    }
-                ),
-                hide_index=True,
-                use_container_width=True,
-            )
-            continue
-
+# ============================================================
+# API 호출
+# ============================================================
+def call_single_market(
+    ingredients: Sequence[str],
+    target: str,
+) -> dict:
+    response = requests.post(
+        COMPLIANCE_API_URL,
+        json={"ingredients": list(ingredients), "target": target},
+        timeout=120,
+    )
+    if response.status_code != 200:
         try:
-            dataframe = read_uploaded_table(uploaded_file)
+            detail = response.json().get("detail", response.text)
+        except ValueError:
+            detail = response.text
+        raise RuntimeError(f"API {response.status_code}: {detail}")
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError("API 응답 구조가 올바르지 않습니다.")
+    return payload
+
+
+def analyze_product(
+    ingredients: Sequence[str],
+    targets: Sequence[str],
+) -> Tuple[Dict[str, dict], Dict[str, str]]:
+    try:
+        response = requests.post(
+            MULTI_COMPLIANCE_API_URL,
+            json={
+                "ingredients": list(ingredients),
+                "targets": list(targets),
+            },
+            timeout=max(120, 45 * len(targets)),
+        )
+        if response.status_code == 200:
+            payload = response.json()
+            results = payload.get("results") or {}
+            failures = payload.get("failed_targets") or {}
+            if isinstance(results, dict) and isinstance(failures, dict):
+                return results, {
+                    clean_text(key): clean_text(value)
+                    for key, value in failures.items()
+                }
+        # v2가 아직 배포되지 않은 서버에서는 v1 반복 호출로 자동 대체한다.
+        if response.status_code not in {404, 405, 422, 500, 502, 503, 504}:
+            try:
+                detail = response.json().get("detail", response.text)
+            except ValueError:
+                detail = response.text
+            raise RuntimeError(f"다중시장 API {response.status_code}: {detail}")
+    except requests.RequestException:
+        pass
+
+    results: Dict[str, dict] = {}
+    failures: Dict[str, str] = {}
+    for target in targets:
+        try:
+            results[target] = call_single_market(ingredients, target)
         except Exception as exc:
-            errors.append(f"{uploaded_file.name}: {exc}")
-            continue
-
-        if dataframe.empty or dataframe.shape[1] == 0:
-            errors.append(f"{uploaded_file.name}: no readable ingredient rows")
-            continue
-
-        st.markdown(f"📊 Preview: {uploaded_file.name}")
-        st.dataframe(
-            dataframe.head(3),
-            hide_index=True,
-            use_container_width=True,
-        )
-
-        ingredients = (
-            dataframe.iloc[:, 0]
-            .dropna()
-            .map(clean_text)
-            .tolist()
-        )
-
-        for ingredient in ingredients:
-            if ingredient:
-                ingredient_source_map.setdefault(
-                    ingredient,
-                    set(),
-                ).add(uploaded_file.name)
-
-    return ingredient_source_map, errors
+            failures[target] = f"{type(exc).__name__}: {exc}"
+    return results, failures
 
 
 # ============================================================
-# API 응답 변환
+# 결과 표시 도우미
 # ============================================================
-def flatten_review_matches(
-    report_details: list[dict[str, Any]],
-    ingredient_source_map: dict[str, set[str]],
-) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
+def render_market_summary(target: str, result_data: dict) -> None:
+    counts = status_counts(result_data)
+    decision = market_decision(result_data)
+    st.markdown(f"#### {MARKET_LABELS.get(target, target)}")
+    cols = st.columns(7)
+    labels = [
+        ("통과", counts["PASS"]),
+        ("금지", counts["BANNED"]),
+        ("제한", counts["RESTRICTED"]),
+        ("표시", counts["WARNING_REQUIRED"]),
+        ("규제 대상", counts["REGULATED"]),
+        ("수동 검토", counts["REVIEW_REQUIRED"]),
+        ("명칭 검증", counts["VERIFICATION_REQUIRED"]),
+    ]
+    for column, (label, value) in zip(cols, labels):
+        column.metric(label, value)
 
-    for detail in report_details:
-        status = normalize_status(
+    status = dominant_status(result_data)
+    message = f"{decision['overall']} — {decision['possibility']}"
+    if status == "BANNED":
+        st.error(message)
+    elif status == "PASS":
+        st.success(message)
+    else:
+        st.warning(message)
+
+    rows = []
+    for detail in result_data.get("report_details") or []:
+        raw_status = normalize_status(
             detail.get("compliance_status")
             or detail.get("restriction_type")
         )
-
-        if status != "REVIEW_REQUIRED":
-            continue
-
-        original_ingredient = clean_text(
-            detail.get("original_ingredient")
-        )
-        inci_name = clean_text(detail.get("inci_name"))
-        source_files = ", ".join(
-            sorted(
-                ingredient_source_map.get(
-                    original_ingredient,
-                    set(),
-                )
-            )
-        )
-
-        matches = detail.get("review_matches") or []
-
-        if not matches:
-            rows.append(
-                {
-                    "Original Ingredient": original_ingredient,
-                    "INCI Name": inci_name,
-                    "CAS Number": clean_text(
-                        detail.get("cas_number"),
-                        "N/A",
-                    ),
-                    "Suggested Status": "REGULATED",
-                    "Reason": clean_text(
-                        detail.get("regulation_reason")
-                        or detail.get("regulation_notice")
-                    ),
-                    "Confidence": "",
-                    "Input Source File": source_files,
-                    "Regulatory Source File": "",
-                    "Source Sheet": "",
-                    "Source Row": "",
-                    "Raw Source Text": "",
-                }
-            )
-            continue
-
-        for match in matches:
-            confidence = safe_float(match.get("confidence"), 0.0)
-            rows.append(
-                {
-                    "Original Ingredient": original_ingredient,
-                    "INCI Name": inci_name,
-                    "CAS Number": clean_text(
-                        match.get("cas_number")
-                        or detail.get("cas_number"),
-                        "N/A",
-                    ),
-                    "Suggested Status": clean_text(
-                        match.get("suggested_status"),
-                        "REGULATED",
-                    ),
-                    "Reason": clean_text(
-                        match.get("reason")
-                        or detail.get("regulation_reason")
-                    ),
-                    "Confidence": confidence,
-                    "Input Source File": source_files,
-                    "Regulatory Source File": clean_text(
-                        match.get("source_file")
-                    ),
-                    "Source Sheet": clean_text(
-                        match.get("source_sheet")
-                    ),
-                    "Source Row": safe_int(
-                        match.get("source_row"),
-                        0,
-                    )
-                    or "",
-                    "Raw Source Text": clean_text(
-                        match.get("raw_text")
-                    ),
-                }
-            )
-
-    return pd.DataFrame(rows)
-
-
-def build_result_dataframe(
-    result_data: dict[str, Any],
-    ingredient_source_map: dict[str, set[str]],
-) -> pd.DataFrame:
-    details = result_data.get("report_details") or []
-    rows: list[dict[str, Any]] = []
-
-    for index, detail in enumerate(details, start=1):
-        original_ingredient = clean_text(
-            detail.get("original_ingredient")
-        )
-        status = normalize_status(
-            detail.get("compliance_status")
-            or detail.get("restriction_type")
-        )
-
-        screening_decision = clean_text(
-            detail.get("screening_decision")
-        )
-
         rows.append(
             {
-                "No.": index,
-                "Original Ingredient": original_ingredient,
-                "INCI Name": clean_text(detail.get("inci_name")),
-                "CAS Number": clean_text(
-                    detail.get("cas_number"),
-                    "N/A",
-                ),
-                "Screening Decision": screening_decision_display(
-                    screening_decision,
-                    status,
-                ),
-                "Decision Code": screening_decision,
-                "Legacy Status Code": status,
-                "Status Code": status,
-                "Source File": ", ".join(
-                    sorted(
-                        ingredient_source_map.get(
-                            original_ingredient,
-                            set(),
-                        )
-                    )
-                ),
-                "Match Source": clean_text(
-                    detail.get("match_source")
-                ),
-                "Regulation Reason": clean_text(
+                "성분명": clean_text(detail.get("original_ingredient")),
+                "INCI": clean_text(detail.get("inci_name")),
+                "CAS": clean_text(detail.get("cas_number"), "N/A"),
+                "판정": STATUS_LABELS.get(raw_status, raw_status),
+                "근거·확인사항": clean_text(
                     detail.get("regulation_reason")
-                ),
-                "Regulation Notice": clean_text(
-                    detail.get("regulation_notice")
+                    or detail.get("regulation_notice")
                 ),
             }
         )
-
-    return pd.DataFrame(rows)
-
-
-def determine_local_overall_status(
-    result_dataframe: pd.DataFrame,
-) -> str:
-    if result_dataframe.empty:
-        return "REVIEW_REQUIRED"
-
-    statuses = set(
-        result_dataframe["Status Code"]
-        .astype(str)
-        .str.upper()
+    st.dataframe(
+        pd.DataFrame(rows),
+        hide_index=True,
+        use_container_width=True,
     )
 
-    if "BANNED" in statuses:
-        return "FAIL"
-    if "RESTRICTED" in statuses:
-        return "RESTRICTED"
-    if "WARNING_REQUIRED" in statuses:
-        return "WARNING_REQUIRED"
-    if statuses.intersection(
-        {
-            "REVIEW_REQUIRED",
-            "VERIFICATION_REQUIRED",
-            "REGULATED",
-        }
-    ):
-        return "REVIEW_REQUIRED"
-    return "PASS"
 
-
-# ============================================================
-# Excel 생성
-# ============================================================
-def format_workbook(writer: pd.ExcelWriter) -> None:
-    header_fill = PatternFill(
-        fill_type="solid",
-        fgColor="D9EAF7",
+def render_halal_summary(result_data: dict) -> None:
+    counts = status_counts(result_data)
+    decision = halal_decision(result_data)
+    st.markdown("#### HALAL 추가 성분 검토")
+    cols = st.columns(4)
+    cols[0].metric("위험 후보 미확인", counts["PASS"])
+    cols[1].metric("할랄 금지", counts["BANNED"])
+    cols[2].metric(
+        "공식 기준 검토",
+        counts["REVIEW_REQUIRED"] + counts["REGULATED"],
     )
-    header_font = Font(bold=True)
-
-    for worksheet in writer.book.worksheets:
-        worksheet.freeze_panes = "A2"
-        worksheet.auto_filter.ref = worksheet.dimensions
-
-        for cell in worksheet[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(
-                horizontal="center",
-                vertical="center",
-            )
-
-        header_columns = {
-            clean_text(cell.value): cell.column
-            for cell in worksheet[1]
-        }
-        official_url_column = header_columns.get("Official URL")
-        if official_url_column:
-            for row_index in range(2, worksheet.max_row + 1):
-                url_cell = worksheet.cell(
-                    row=row_index,
-                    column=official_url_column,
-                )
-                url = clean_text(url_cell.value)
-                if url.startswith("https://"):
-                    url_cell.hyperlink = url
-                    url_cell.style = "Hyperlink"
-
-        for column_index, column_cells in enumerate(
-            worksheet.columns,
-            start=1,
-        ):
-            max_length = 0
-
-            for cell in column_cells:
-                value = "" if cell.value is None else str(cell.value)
-                max_length = max(max_length, len(value))
-
-                if cell.row > 1:
-                    cell.alignment = Alignment(
-                        vertical="top",
-                        wrap_text=True,
-                    )
-
-            worksheet.column_dimensions[
-                get_column_letter(column_index)
-            ].width = min(max(max_length + 2, 12), 60)
-
-
-def create_full_report_excel(
-    result_dataframe: pd.DataFrame,
-    review_dataframe: pd.DataFrame,
-    result_data: dict[str, Any],
-) -> bytes:
-    output = io.BytesIO()
-    sources_dataframe = official_sources_dataframe(result_data)
-
-    summary_rows = [
-        {
-            "Item": "Report Number",
-            "Value": clean_text(result_data.get("report_number")),
-        },
-        {
-            "Item": "API Version",
-            "Value": clean_text(result_data.get("api_version")),
-        },
-        {
-            "Item": "Report Schema Version",
-            "Value": clean_text(
-                result_data.get("report_schema_version")
-            ),
-        },
-        {
-            "Item": "Database Version",
-            "Value": clean_text(result_data.get("database_version")),
-        },
-        {
-            "Item": "Database Fingerprint (SHA-256)",
-            "Value": clean_text(
-                result_data.get("database_fingerprint")
-            ),
-        },
-        {
-            "Item": "Source Registry Version",
-            "Value": clean_text(
-                result_data.get("source_registry_version")
-            ),
-        },
-        {
-            "Item": "Target Market",
-            "Value": clean_text(result_data.get("target_market")),
-        },
-        {
-            "Item": "Screening Decision",
-            "Value": clean_text(
-                result_data.get("screening_decision_label")
-                or result_data.get("screening_decision")
-            ),
-        },
-        {
-            "Item": "Total Checked",
-            "Value": safe_int(result_data.get("total_checked")),
-        },
-        {
-            "Item": "Banned",
-            "Value": safe_int(
-                (result_data.get("status_counts") or {}).get("BANNED")
-            ),
-        },
-        {
-            "Item": "Restricted",
-            "Value": safe_int(
-                (result_data.get("status_counts") or {}).get(
-                    "RESTRICTED"
-                )
-            ),
-        },
-        {
-            "Item": "Warning Required",
-            "Value": safe_int(
-                (result_data.get("status_counts") or {}).get(
-                    "WARNING_REQUIRED"
-                )
-            ),
-        },
-        {
-            "Item": "Manual Review",
-            "Value": safe_int(
-                (result_data.get("status_counts") or {}).get(
-                    "REVIEW_REQUIRED"
-                )
-            ),
-        },
-        {
-            "Item": "Verification Required",
-            "Value": safe_int(
-                (result_data.get("status_counts") or {}).get(
-                    "VERIFICATION_REQUIRED"
-                )
-            ),
-        },
-        {
-            "Item": "Confirmed DB",
-            "Value": clean_text(result_data.get("database_file")),
-        },
-        {
-            "Item": "Confirmed DB File Modified",
-            "Value": clean_text(
-                result_data.get("database_last_updated")
-            ),
-        },
-        {
-            "Item": "Review DB",
-            "Value": clean_text(
-                result_data.get("review_database_file")
-            ),
-        },
-        {
-            "Item": "Review DB File Modified",
-            "Value": clean_text(
-                result_data.get("review_database_last_updated")
-            ),
-        },
-        {
-            "Item": "Generated At",
-            "Value": clean_text(
-                result_data.get("report_generated_at")
-            ),
-        },
-        {
-            "Item": "Disclaimer",
-            "Value": clean_text(result_data.get("disclaimer")),
-        },
-    ]
-
-    report_export = result_dataframe.drop(
-        columns=[
-            "Status Code",
-            "Decision Code",
-            "Legacy Status Code",
-        ],
-        errors="ignore",
-    )
-
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        report_export.to_excel(
-            writer,
-            index=False,
-            sheet_name="Screening_Report",
-        )
-        pd.DataFrame(summary_rows).to_excel(
-            writer,
-            index=False,
-            sheet_name="Summary",
-        )
-
-        if not review_dataframe.empty:
-            review_dataframe.to_excel(
-                writer,
-                index=False,
-                sheet_name="Manual_Review",
-            )
-
-        if not sources_dataframe.empty:
-            sources_dataframe.to_excel(
-                writer,
-                index=False,
-                sheet_name="Official_Sources",
-            )
-
-        format_workbook(writer)
-
-    return output.getvalue()
-
-
-def create_manual_review_excel(
-    review_dataframe: pd.DataFrame,
-    result_data: dict[str, Any],
-) -> bytes:
-    output = io.BytesIO()
-    sources_dataframe = official_sources_dataframe(result_data)
-
-    instructions = pd.DataFrame(
-        [
-            {
-                "Item": "Report Number",
-                "Value": clean_text(result_data.get("report_number")),
-            },
-            {
-                "Item": "Database Version",
-                "Value": clean_text(result_data.get("database_version")),
-            },
-            {
-                "Item": "Target Market",
-                "Value": clean_text(result_data.get("target_market")),
-            },
-            {
-                "Item": "Purpose",
-                "Value": (
-                    "These ingredients matched country-specific pending-"
-                    "review records. They are not final legal classifications."
-                ),
-            },
-            {
-                "Item": "Required Action",
-                "Value": (
-                    "Verify the current official regulation, concentration "
-                    "limit, product category, intended use, and source text."
-                ),
-            },
-            {
-                "Item": "Review DB",
-                "Value": clean_text(
-                    result_data.get("review_database_file")
-                ),
-            },
-            {
-                "Item": "Review DB File Modified",
-                "Value": clean_text(
-                    result_data.get(
-                        "review_database_last_updated"
-                    )
-                ),
-            },
-            {
-                "Item": "Generated At",
-                "Value": clean_text(
-                    result_data.get("report_generated_at")
-                ),
-            },
-        ]
-    )
-
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        review_dataframe.to_excel(
-            writer,
-            index=False,
-            sheet_name="Matched_Review_Records",
-        )
-        instructions.to_excel(
-            writer,
-            index=False,
-            sheet_name="Instructions",
-        )
-        if not sources_dataframe.empty:
-            sources_dataframe.to_excel(
-                writer,
-                index=False,
-                sheet_name="Official_Sources",
-            )
-        format_workbook(writer)
-
-    return output.getvalue()
-
-
-# ============================================================
-# 결과 요약 UI
-# ============================================================
-def render_status_summary(
-    result_dataframe: pd.DataFrame,
-    result_data: dict[str, Any],
-) -> None:
-    status_counts = result_data.get("status_counts") or {}
-
-    columns = st.columns(5)
-    columns[0].metric(
-        "명시적 일치 없음",
-        safe_int(status_counts.get("PASS")),
-    )
-    columns[1].metric(
-        "중단 권고",
-        safe_int(status_counts.get("BANNED")),
-    )
-    columns[2].metric(
-        "조건 확인",
-        safe_int(status_counts.get("RESTRICTED")),
-    )
-    columns[3].metric(
-        "표시·통지 확인",
-        safe_int(status_counts.get("WARNING_REQUIRED")),
-    )
-    columns[4].metric(
-        "전문가 검토",
-        safe_int(
-            status_counts.get("REVIEW_REQUIRED")
-        )
-        + safe_int(
-            status_counts.get("VERIFICATION_REQUIRED")
-        ),
-    )
-
-    overall_status = clean_text(
-        result_data.get("compliance_status")
-    ).upper()
-
-    if not overall_status:
-        overall_status = determine_local_overall_status(
-            result_dataframe
-        )
-
-    message = OVERALL_MESSAGE.get(
-        overall_status,
-        OVERALL_MESSAGE["REVIEW_REQUIRED"],
-    )
-
-    if overall_status == "PASS":
-        st.success(message)
-    elif overall_status == "FAIL":
-        st.error(message)
-    elif overall_status in {"RESTRICTED", "WARNING_REQUIRED"}:
-        st.warning(message)
+    cols[3].metric("기원·구성·인증 확인", counts["VERIFICATION_REQUIRED"])
+    if counts["BANNED"]:
+        st.error(f"{decision['overall']} — {decision['possibility']}")
+    elif sum(value for key, value in counts.items() if key != "PASS"):
+        st.warning(f"{decision['overall']} — {decision['possibility']}")
     else:
-        st.info(message)
+        st.success(f"{decision['overall']} — {decision['possibility']}")
+
+    rows = []
+    for detail in result_data.get("report_details") or []:
+        raw_status = normalize_status(
+            detail.get("compliance_status")
+            or detail.get("restriction_type")
+        )
+        rows.append(
+            {
+                "성분명": clean_text(detail.get("original_ingredient")),
+                "INCI": clean_text(detail.get("inci_name")),
+                "검토 상태": (
+                    "할랄 위험 후보 미확인"
+                    if raw_status == "PASS"
+                    else clean_text(
+                        detail.get("verification_type"),
+                        STATUS_BADGES.get(raw_status, raw_status),
+                    )
+                ),
+                "필요한 자료": clean_text(detail.get("required_evidence")),
+                "후속 조치": clean_text(detail.get("recommended_action")),
+            }
+        )
+    st.dataframe(
+        pd.DataFrame(rows),
+        hide_index=True,
+        use_container_width=True,
+    )
 
 
 # ============================================================
@@ -1022,82 +501,14 @@ def render_status_summary(
 def run_app() -> None:
     initialize_session_state()
 
-    @st.dialog("🚧 System Notice: Test Server")
+    @st.dialog("시스템 안내")
     def show_test_server_popup() -> None:
         st.warning(
-            "This system is currently running in a test environment. "
-            "Temporary disruptions or incomplete data may occur."
+            "현재 시스템은 운영 전 검증 환경입니다. "
+            "규제 데이터와 생성 파일을 최종 업무에 사용하기 전에 반드시 확인하십시오."
         )
-        if st.button(
-            "Acknowledge",
-            use_container_width=True,
-            key="ack_test_notice",
-        ):
+        if st.button("확인", use_container_width=True):
             st.session_state.test_notice_shown = True
-            st.rerun()
-
-    @st.dialog("🟣 Country-Specific Manual Review Required")
-    def show_manual_review_popup() -> None:
-        result = st.session_state.api_result or {}
-        review_dataframe = result.get("review_df", pd.DataFrame())
-        target = result.get("target", "")
-
-        st.warning(
-            f"{target} pending-review data matched ingredients in this "
-            "inspection. These records are not final banned or restricted "
-            "classifications. Official regulations and use conditions must "
-            "be checked before export, sale, or customs submission."
-        )
-
-        if not review_dataframe.empty:
-            popup_columns = [
-                "Original Ingredient",
-                "INCI Name",
-                "Suggested Status",
-                "Reason",
-                "Confidence",
-                "Regulatory Source File",
-                "Source Sheet",
-                "Source Row",
-            ]
-            available_columns = [
-                column
-                for column in popup_columns
-                if column in review_dataframe.columns
-            ]
-
-            st.dataframe(
-                review_dataframe[available_columns],
-                hide_index=True,
-                use_container_width=True,
-            )
-
-        manual_review_excel = result.get("manual_review_excel")
-
-        if manual_review_excel:
-            st.download_button(
-                "📥 Download This Inspection's Manual Review Report",
-                data=manual_review_excel,
-                file_name=(
-                    f"{safe_filename_part(result.get('report_number'))}_"
-                    "Manual_Review.xlsx"
-                ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-                use_container_width=True,
-                key="popup_manual_review_download",
-            )
-
-        if st.button(
-            "I understand — continue to the full result",
-            use_container_width=True,
-            key="ack_manual_review",
-        ):
-            result_id = result.get("result_id")
-            st.session_state.review_popup_pending = False
-            st.session_state.review_popup_acknowledged_id = result_id
             st.rerun()
 
     if not st.session_state.test_notice_shown:
@@ -1105,10 +516,10 @@ def run_app() -> None:
         st.stop()
 
     # --------------------------------------------------------
-    # 사이드바: 상태 및 라이선스
+    # 사이드바
     # --------------------------------------------------------
-    st.sidebar.error("🚧 STATUS: TEST SERVER")
-    st.sidebar.success(f"🟢 SYSTEM ONLINE ({APP_VERSION})")
+    st.sidebar.error("검증 환경")
+    st.sidebar.success(f"SYSTEM ONLINE · {APP_VERSION}")
 
     database_status = fetch_database_status()
     if database_status:
@@ -1126,640 +537,394 @@ def run_app() -> None:
             if isinstance(item, dict)
         )
         st.sidebar.caption(
-            f"Confirmed DB records loaded: {total_confirmed:,}"
-        )
-        st.sidebar.caption(
-            f"Pending-review rows loaded: {total_review:,}"
+            f"확정 DB {total_confirmed:,}건 · 검토대기 {total_review:,}건"
         )
     else:
-        st.sidebar.caption("Database status endpoint unavailable.")
+        st.sidebar.caption("데이터베이스 상태 조회 불가")
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🔐 Premium Access")
-
-    entered_password = st.sidebar.text_input(
-        "Enter your License Key:",
+    st.sidebar.subheader("라이선스")
+    entered_key = st.sidebar.text_input(
+        "License Key",
         type="password",
     )
 
-    is_vip = False
-    is_pro_or_ceo = False
-
-    if entered_password:
-        if (
-            st.session_state.last_entered_key
-            != entered_password
-        ):
-            auth_tier, auth_msg = check_license_status(
-                entered_password,
-                increment=False,
-            )
-            st.session_state.current_auth_tier = auth_tier
-            st.session_state.current_auth_msg = auth_msg
-            st.session_state.last_entered_key = entered_password
-
+    auth_tier = "FREE"
+    current_uses = 0
+    if entered_key:
+        if st.session_state.last_entered_key != entered_key:
+            tier, message, uses = check_license_status(entered_key)
+            st.session_state.current_auth_tier = tier
+            st.session_state.current_auth_msg = message
+            st.session_state.last_entered_key = entered_key
+            st.session_state.standard_uses = uses
         auth_tier = st.session_state.current_auth_tier
-        auth_msg = st.session_state.current_auth_msg
-
-        if auth_tier == "PRO":
-            st.sidebar.success(auth_msg)
-            is_vip = True
-            is_pro_or_ceo = True
-        elif auth_tier == "STANDARD":
-            st.sidebar.success(auth_msg)
-            is_vip = True
-        elif auth_tier == "EXPIRED":
-            st.sidebar.error(auth_msg)
+        current_uses = safe_int(st.session_state.get("standard_uses"))
+        message = st.session_state.current_auth_msg
+        if auth_tier in {"PRO", "STANDARD"}:
+            st.sidebar.success(message)
         elif auth_tier == "ERROR":
-            st.sidebar.warning(auth_msg)
+            st.sidebar.warning(message)
         else:
-            st.sidebar.error(auth_msg)
+            st.sidebar.error(message)
     else:
         st.sidebar.warning(
-            "🎁 Free Trial Active: "
-            f"{st.session_state.free_uses_left} checks remaining."
+            "무료 검증 이용: "
+            f"잔여 {st.session_state.free_analysis_units_left}건"
         )
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("💎 Choose Your Plan")
-
-    @st.dialog("⚠️ License Key Information & Payment")
-    def show_payment_popup(
-        plan_name: str,
-        link: str,
-    ) -> None:
-        st.warning(
-            "After payment, the license key will be included in the "
-            "Gumroad receipt email."
-        )
-        st.link_button(
-            f"Go to {plan_name} Payment Page",
-            link,
-            use_container_width=True,
-        )
-
-    if st.sidebar.button(
-        "💳 Subscribe Standard ($299/mo)",
-        use_container_width=True,
-    ):
-        show_payment_popup(
-            "Standard Plan",
-            "https://dahee5.gumroad.com/l/lyibre",
-        )
-        st.stop()
-
-    st.sidebar.caption(
-        "✔️ 50 scans per month\n\n"
-        "✔️ Single-file scan and Excel download"
-    )
-
-    if st.sidebar.button(
-        "🚀 Subscribe PRO Bulk ($499/mo)",
-        use_container_width=True,
-    ):
-        show_payment_popup(
-            "PRO Bulk Plan",
-            "https://dahee5.gumroad.com/l/pkoph",
-        )
-        st.stop()
-
-    st.sidebar.caption(
-        "✔️ Unlimited scans\n\n"
-        "✔️ Multiple files and batch extraction"
-    )
+    is_pro = auth_tier == "PRO"
+    is_standard = auth_tier == "STANDARD"
+    is_free = not entered_key
 
     # --------------------------------------------------------
-    # 메인 안내
+    # 메인
     # --------------------------------------------------------
-    st.title("🌍 Global K-Beauty Regulatory Screening")
+    st.title("Global K-Beauty Compliance")
     st.markdown(
-        "##### AI-assisted ingredient normalization and country-specific "
-        "regulatory screening"
+        "##### 제품별 다중시장 성분 규제 분석과 HALAL 추가검토"
     )
 
-    advantage_columns = st.columns(2)
+    st.info(
+        "7개 국가·권역 규제시장을 복수 선택하고, HALAL은 별도 추가검토로 선택합니다. "
+        "업로드한 제품은 서로 합치지 않고 제품별로 분석하며 Excel과 Word 보고서를 각각 생성합니다."
+    )
 
-    with advantage_columns[0]:
-        st.info(
-            "#### 🛡️ Confirmed DB First\n"
-            "Confirmed country-specific regulatory records take priority "
-            "over pending-review records."
-        )
-        st.success(
-            "#### 🌐 Country-Specific Review\n"
-            "Only pending-review records matching this inspection and the "
-            "selected market are shown."
-        )
-
-    with advantage_columns[1]:
-        st.warning(
-            "#### 🟣 Manual Review Separation\n"
-            "Unconfirmed records are never presented as a final banned or "
-            "restricted decision."
-        )
-        st.error(
-            "#### 🇰🇷 Korean-to-INCI Matching\n"
-            "The master Korean-INCI database is used before AI fallback."
-        )
-
-    st.markdown("---")
-
-    if (
-        not is_vip
-        and st.session_state.free_uses_left <= 0
-    ):
-        st.error(
-            "🔒 Free trial expired. Enter a valid license key to continue."
-        )
-        st.stop()
-
-    # --------------------------------------------------------
-    # 법적 고지
-    # --------------------------------------------------------
     if not st.session_state.disclaimer_agreed:
-        st.markdown("### ⚠️ Required Legal Notice")
+        st.markdown("### 필수 고지")
         st.warning(
-            "This service provides preliminary regulatory screening only. "
-            "A result showing no explicit database match is not a safety, "
-            "import, export, sale, registration, customs, or legal-"
-            "compliance approval. Users must independently verify current "
-            "regulations, actual concentrations, product category, intended "
-            "use, labeling, notification, registration, certification, and "
-            "other official requirements before commercial action."
+            "이 서비스는 규제 사전 스크리닝 도구이며 법률 자문, 제품 등록 승인, "
+            "통관 허가 또는 할랄 인증서를 대신하지 않습니다."
         )
-
-        if st.checkbox(
-            "I have read and agree to the legal notice."
-        ):
+        if st.checkbox("위 고지를 읽고 동의합니다."):
             st.session_state.disclaimer_agreed = True
             st.rerun()
-
         st.stop()
 
-    if st.button("⚖️ Review Legal Notice"):
+    if st.button("고지 다시 확인"):
         st.session_state.disclaimer_agreed = False
+        reset_results()
         st.rerun()
 
-    # --------------------------------------------------------
-    # 검사 작업영역
-    # --------------------------------------------------------
-    st.subheader("🚀 Regulatory Screening Workspace")
+    st.markdown("---")
+    st.subheader("1. 분석 범위 선택")
 
-    selected_display_name = st.selectbox(
-        "1️⃣ Select Target Market",
-        options=list(COUNTRY_OPTIONS.values()),
+    selected_markets = st.multiselect(
+        "국가·권역 규제시장 선택",
+        options=REGULATORY_MARKETS,
+        format_func=lambda code: MARKET_OPTIONS[code],
+        default=["EU", "US", "CN"],
         on_change=reset_results,
     )
 
-    target_country = next(
-        key
-        for key, value in COUNTRY_OPTIONS.items()
-        if value == selected_display_name
+    halal_selected = st.checkbox(
+        "HALAL 추가검토",
+        value=False,
+        help=(
+            "원료 기원, 동물 유래 가능성, 알코올 관련 성분, "
+            "복합원료 구성, 제조공정 및 인증자료 확인 대상을 추가로 선별합니다."
+        ),
+        on_change=reset_results,
     )
 
-    if database_status and target_country in database_status:
-        target_status = database_status[target_country]
-        confirmed_count = safe_int(
-            target_status.get("confirmed_records")
-            or target_status.get("loaded_records")
-        )
-        review_count = safe_int(
-            target_status.get("review_rows")
-        )
-        st.caption(
-            f"{target_country} DB loaded: "
-            f"{confirmed_count:,} confirmed records / "
-            f"{review_count:,} pending-review rows"
-        )
+    if not selected_markets:
+        st.warning("국가·권역 규제시장을 1개 이상 선택하십시오.")
 
-    trial_active = (
-        not is_vip
-        and st.session_state.free_uses_left > 0
+    st.subheader("2. 제품 파일 업로드")
+    upload_types = ["csv", "xlsx", "xls", "jpg", "jpeg", "png"]
+    multiple_allowed = is_pro or is_free
+    uploaded_files = st.file_uploader(
+        (
+            "제품별 전성분 파일 업로드 — 여러 파일 가능"
+            if multiple_allowed
+            else "제품 전성분 파일 1개 업로드"
+        ),
+        type=upload_types,
+        accept_multiple_files=multiple_allowed,
+        on_change=reset_results,
     )
 
-    upload_types = [
-        "csv",
-        "xlsx",
-        "xls",
-        "jpg",
-        "jpeg",
-        "png",
-    ]
-
-    if is_pro_or_ceo or trial_active:
-        uploaded_files = st.file_uploader(
-            "2️⃣ Upload Ingredient Files "
-            "(Single or Multiple — PRO / Free Trial)",
-            type=upload_types,
-            accept_multiple_files=True,
-            on_change=reset_results,
-        )
+    if uploaded_files is None:
+        uploaded_list: List[Any] = []
+    elif isinstance(uploaded_files, list):
+        uploaded_list = uploaded_files
     else:
-        uploaded_file = st.file_uploader(
-            "2️⃣ Upload One Ingredient File (Standard)",
-            type=upload_types,
-            accept_multiple_files=False,
-            on_change=reset_results,
-        )
-        uploaded_files = (
-            [uploaded_file]
-            if uploaded_file is not None
-            else []
-        )
+        uploaded_list = [uploaded_files]
 
-    ingredient_source_map: dict[str, set[str]] = {}
-
-    if uploaded_files:
-        ingredient_source_map, upload_errors = (
-            collect_ingredients_from_files(uploaded_files)
-        )
-
-        for error in upload_errors:
-            st.error(error)
-
-        unique_ingredients = list(ingredient_source_map.keys())
-
-        if unique_ingredients:
-            st.success(
-                f"{len(unique_ingredients):,} unique ingredient(s) ready."
-            )
-
-        run_clicked = (
-            bool(unique_ingredients)
-            and st.button(
-                "🚀 Run Regulatory Screening",
-                use_container_width=True,
-            )
-        )
-
-        if run_clicked:
-            if is_vip and not is_pro_or_ceo:
-                run_tier, run_msg = check_license_status(
-                    entered_password,
-                    increment=True,
+    products: List[dict] = []
+    if uploaded_list:
+        for index, uploaded_file in enumerate(uploaded_list):
+            product = extract_product(uploaded_file)
+            with st.expander(
+                f"{index + 1}. {product['source_file']}",
+                expanded=True,
+            ):
+                if product.get("error"):
+                    st.error(product["error"])
+                edited_name = st.text_input(
+                    "제품명",
+                    value=product["product_name"],
+                    key=f"product_name_{index}_{product['source_file']}",
                 )
-
-                if run_tier == "EXPIRED":
-                    st.error(
-                        "Monthly limit reached. Analysis cannot proceed."
+                product["product_name"] = clean_text(
+                    edited_name,
+                    product["product_name"],
+                )
+                if not product["preview"].empty:
+                    st.dataframe(
+                        product["preview"],
+                        hide_index=True,
+                        use_container_width=True,
                     )
-                    st.stop()
+                st.caption(
+                    f"분석 성분 수: {len(product['ingredients']):,}개"
+                )
+            if product["ingredients"] and not product.get("error"):
+                products.append(product)
 
-                if run_tier != "STANDARD":
-                    st.error(run_msg)
-                    st.stop()
+    targets = list(selected_markets)
+    if halal_selected:
+        targets.append("HALAL")
 
-                st.session_state.current_auth_msg = run_msg
+    analysis_units = len(products) * len(targets)
+    st.subheader("3. 분석 실행")
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("제품 수", len(products))
+    metric_cols[1].metric("규제시장 수", len(selected_markets))
+    metric_cols[2].metric("HALAL", "추가" if halal_selected else "미선택")
+    metric_cols[3].metric("예상 분석 건수", analysis_units)
 
-            status_text = st.empty()
-            progress_bar = st.progress(0)
+    if is_standard and len(products) > 1:
+        st.error("Standard는 제품 파일 1개만 분석할 수 있습니다.")
 
+    if is_standard and current_uses + analysis_units > 50:
+        st.error(
+            f"현재 잔여 분석 한도로 {analysis_units}건을 실행할 수 없습니다."
+        )
+
+    if is_free and analysis_units > st.session_state.free_analysis_units_left:
+        st.error(
+            "무료 잔여 분석 건수보다 요청한 분석 건수가 많습니다. "
+            "제품 또는 시장 수를 줄이십시오."
+        )
+
+    can_run = (
+        bool(products)
+        and bool(selected_markets)
+        and not (is_standard and len(products) > 1)
+        and not (is_standard and current_uses + analysis_units > 50)
+        and not (
+            is_free
+            and analysis_units > st.session_state.free_analysis_units_left
+        )
+        and auth_tier not in {"INVALID", "EXPIRED", "ERROR"}
+    )
+    if is_free:
+        can_run = (
+            bool(products)
+            and bool(selected_markets)
+            and analysis_units <= st.session_state.free_analysis_units_left
+        )
+
+    run_clicked = st.button(
+        "다중제품·다중시장 분석 실행",
+        type="primary",
+        use_container_width=True,
+        disabled=not can_run,
+    )
+
+    if run_clicked:
+        progress = st.progress(0)
+        status_box = st.empty()
+        product_outputs: List[dict] = []
+        failures: List[dict] = []
+        completed_units = 0
+
+        for product_index, product in enumerate(products, start=1):
+            status_box.info(
+                f"{product_index}/{len(products)} — "
+                f"{product['product_name']} 분석 중"
+            )
             try:
-                status_text.info(
-                    "Step 1/4: Structuring ingredients and source files..."
+                result_map, target_failures = analyze_product(
+                    product["ingredients"],
+                    targets,
                 )
-                progress_bar.progress(20)
-
-                status_text.info(
-                    f"Step 2/4: Loading {target_country} confirmed and "
-                    "pending-review databases..."
-                )
-                progress_bar.progress(45)
-
-                status_text.info(
-                    "Step 3/4: Matching normalized INCI names..."
-                )
-                progress_bar.progress(70)
-
-                response = requests.post(
-                    COMPLIANCE_API_URL,
-                    json={
-                        "ingredients": unique_ingredients,
-                        "target": target_country,
-                    },
-                    timeout=60,
-                )
-
-                if response.status_code != 200:
-                    try:
-                        error_payload = response.json()
-                        error_message = error_payload.get(
-                            "detail",
-                            error_payload,
-                        )
-                    except ValueError:
-                        error_message = response.text
-
-                    raise RuntimeError(
-                        f"API {response.status_code}: {error_message}"
-                    )
-
-                result_data = response.json()
-
-                if not isinstance(result_data, dict):
-                    raise RuntimeError(
-                        "The API returned an invalid response structure."
-                    )
-
-                status_text.info(
-                    "Step 4/4: Generating reports..."
-                )
-                progress_bar.progress(90)
-
-                result_dataframe = build_result_dataframe(
-                    result_data,
-                    ingredient_source_map,
-                )
-                review_dataframe = flatten_review_matches(
-                    result_data.get("report_details") or [],
-                    ingredient_source_map,
-                )
-
-                full_report_excel = create_full_report_excel(
-                    result_dataframe,
-                    review_dataframe,
-                    result_data,
-                )
-
-                manual_review_excel = (
-                    create_manual_review_excel(
-                        review_dataframe,
-                        result_data,
-                    )
-                    if not review_dataframe.empty
-                    else None
-                )
-
-                result_id = uuid.uuid4().hex
-
-                st.session_state.api_result = {
-                    "result_id": result_id,
-                    "df": result_dataframe,
-                    "review_df": review_dataframe,
-                    "excel_data": full_report_excel,
-                    "manual_review_excel": manual_review_excel,
-                    "status": clean_text(
-                        result_data.get("compliance_status")
-                    ),
-                    "screening_decision": clean_text(
-                        result_data.get("screening_decision")
-                    ),
-                    "report_number": clean_text(
-                        result_data.get("report_number")
-                    ),
-                    "database_version": clean_text(
-                        result_data.get("database_version")
-                    ),
-                    "target": target_country,
-                    "result_data": result_data,
+            except Exception as exc:
+                result_map = {}
+                target_failures = {
+                    target: f"{type(exc).__name__}: {exc}"
+                    for target in targets
                 }
 
-                if not review_dataframe.empty:
-                    st.session_state.review_popup_pending = True
-                    st.session_state.review_popup_result_id = result_id
-                else:
-                    st.session_state.review_popup_pending = False
-                    st.session_state.review_popup_result_id = None
-
-                if not is_vip:
-                    st.session_state.free_uses_left -= 1
-
-                progress_bar.progress(100)
-                status_text.success("✅ Analysis complete.")
-                time.sleep(0.3)
-                st.rerun()
-
-            except (requests.RequestException, RuntimeError, ValueError) as exc:
-                progress_bar.empty()
-                status_text.empty()
-                st.error(f"Regulatory screening failed: {exc}")
-
-    # --------------------------------------------------------
-    # 검사 결과
-    # --------------------------------------------------------
-    if st.session_state.api_result is not None:
-        result = st.session_state.api_result
-        result_dataframe = result["df"]
-        review_dataframe = result["review_df"]
-        result_data = result["result_data"]
-
-        st.markdown("---")
-        st.subheader("📊 Regulatory Screening Result")
-        report_number = clean_text(
-            result_data.get("report_number"),
-            "REPORT-NUMBER-UNAVAILABLE",
-        )
-        database_version = clean_text(
-            result_data.get("database_version"),
-            "DATABASE-VERSION-UNAVAILABLE",
-        )
-        st.caption(
-            f"Report No.: {report_number} · DB Version: {database_version}"
-        )
-
-        render_status_summary(
-            result_dataframe,
-            result_data,
-        )
-
-        all_sources = sorted(
-            {
-                source.strip()
-                for value in result_dataframe.get(
-                    "Source File",
-                    pd.Series(dtype=str),
-                ).astype(str)
-                for source in value.split(",")
-                if source.strip()
-            }
-        )
-
-        selected_files = st.multiselect(
-            "📂 Filter Dashboard by Input Source File",
-            options=all_sources,
-        )
-
-        if selected_files:
-            display_dataframe = result_dataframe[
-                result_dataframe["Source File"].apply(
-                    lambda value: any(
-                        selected in str(value)
-                        for selected in selected_files
-                    )
+            for target, error in target_failures.items():
+                failures.append(
+                    {
+                        "product_name": product["product_name"],
+                        "target": target,
+                        "error": error,
+                    }
                 )
-            ].copy()
-            display_dataframe["No."] = range(
-                1,
-                len(display_dataframe) + 1,
+
+            market_results_map = {
+                target: result_map[target]
+                for target in selected_markets
+                if target in result_map
+            }
+            halal_result = result_map.get("HALAL") if halal_selected else None
+            completed_units += len(market_results_map) + (
+                1 if halal_result is not None else 0
             )
-        else:
-            display_dataframe = result_dataframe.copy()
 
-        visible_columns = [
-            "No.",
-            "Original Ingredient",
-            "INCI Name",
-            "CAS Number",
-            "Screening Decision",
-            "Source File",
-            "Regulation Reason",
-            "Regulation Notice",
-        ]
+            if market_results_map:
+                excel_data = create_product_excel_bytes(
+                    product_name=product["product_name"],
+                    source_file=product["source_file"],
+                    market_results_map=market_results_map,
+                    selected_markets=selected_markets,
+                    halal_result=halal_result,
+                )
+                report_data = create_product_report_bytes(
+                    product_name=product["product_name"],
+                    source_file=product["source_file"],
+                    market_results_map=market_results_map,
+                    selected_markets=selected_markets,
+                    halal_result=halal_result,
+                )
+                product_outputs.append(
+                    {
+                        "product_name": product["product_name"],
+                        "source_file": product["source_file"],
+                        "ingredients": product["ingredients"],
+                        "market_results": market_results_map,
+                        "halal_result": halal_result,
+                        "excel_data": excel_data,
+                        "report_data": report_data,
+                    }
+                )
 
-        st.dataframe(
-            display_dataframe[
-                [
-                    column
-                    for column in visible_columns
-                    if column in display_dataframe.columns
-                ]
-            ],
-            hide_index=True,
+            progress.progress(product_index / len(products))
+
+        if is_standard and completed_units:
+            success, message = consume_standard_units(
+                entered_key,
+                completed_units,
+            )
+            if not success:
+                st.warning(message)
+        elif is_free:
+            st.session_state.free_analysis_units_left = max(
+                0,
+                st.session_state.free_analysis_units_left - completed_units,
+            )
+
+        bundle_data = create_bundle_zip_bytes(product_outputs, failures)
+        st.session_state.analysis_result = {
+            "result_id": uuid.uuid4().hex,
+            "products": product_outputs,
+            "failures": failures,
+            "bundle_data": bundle_data,
+            "requested_units": analysis_units,
+            "completed_units": completed_units,
+            "selected_markets": selected_markets,
+            "halal_selected": halal_selected,
+        }
+        progress.progress(1.0)
+        status_box.success(
+            f"분석 완료 — 성공 {completed_units}/{analysis_units}건"
+        )
+        time.sleep(0.3)
+        st.rerun()
+
+    # --------------------------------------------------------
+    # 결과
+    # --------------------------------------------------------
+    analysis_result = st.session_state.analysis_result
+    if analysis_result:
+        st.markdown("---")
+        st.subheader("분석 결과 및 다운로드")
+        cols = st.columns(4)
+        cols[0].metric("결과 제품", len(analysis_result["products"]))
+        cols[1].metric("요청 건수", analysis_result["requested_units"])
+        cols[2].metric("성공 건수", analysis_result["completed_units"])
+        cols[3].metric("실패 건수", len(analysis_result["failures"]))
+
+        st.download_button(
+            "전체 Excel·Word 결과 ZIP 다운로드",
+            data=analysis_result["bundle_data"],
+            file_name="다중제품_다중시장_규제분석결과.zip",
+            mime="application/zip",
             use_container_width=True,
         )
 
-        download_columns = st.columns(2)
-
-        with download_columns[0]:
-            st.download_button(
-                "📥 Download Regulatory Screening Report",
-                data=result["excel_data"],
-                file_name=(
-                    f"{safe_filename_part(result.get('report_number'))}_"
-                    "Regulatory_Screening_Report.xlsx"
-                ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
+        if analysis_result["failures"]:
+            st.error("일부 제품·시장 분석이 실패했습니다.")
+            st.dataframe(
+                pd.DataFrame(analysis_result["failures"]),
+                hide_index=True,
                 use_container_width=True,
             )
 
-        with download_columns[1]:
-            if (
-                not review_dataframe.empty
-                and result.get("manual_review_excel")
-            ):
+        for product_index, product in enumerate(
+            analysis_result["products"],
+            start=1,
+        ):
+            st.markdown("---")
+            st.markdown(
+                f"### {product_index}. {product['product_name']}"
+            )
+            download_cols = st.columns(2)
+            with download_cols[0]:
                 st.download_button(
-                    "🟣 Download Manual Review Report",
-                    data=result["manual_review_excel"],
+                    "Excel 규제분석결과 다운로드",
+                    data=product["excel_data"],
                     file_name=(
-                        f"{safe_filename_part(result.get('report_number'))}_"
-                        "Manual_Review.xlsx"
+                        f"{safe_filename(product['product_name'])}_"
+                        "다중시장_규제분석결과.xlsx"
                     ),
                     mime=(
                         "application/vnd.openxmlformats-officedocument."
                         "spreadsheetml.sheet"
                     ),
                     use_container_width=True,
+                    key=f"excel_{analysis_result['result_id']}_{product_index}",
                 )
-            else:
-                st.button(
-                    "🟣 No Manual Review Matches",
-                    disabled=True,
+            with download_cols[1]:
+                st.download_button(
+                    "Word 규제스크리닝 보고서 다운로드",
+                    data=product["report_data"],
+                    file_name=(
+                        f"{safe_filename(product['product_name'])}_"
+                        "다중시장_규제스크리닝_보고서.docx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
                     use_container_width=True,
+                    key=f"docx_{analysis_result['result_id']}_{product_index}",
                 )
 
-        if not review_dataframe.empty:
-            st.markdown("### 🟣 Matched Pending-Review Records")
-            st.warning(
-                "Only records matching ingredients in this inspection are "
-                "shown below. The complete internal review database is not "
-                "exposed."
-            )
-            st.dataframe(
-                review_dataframe,
-                hide_index=True,
-                use_container_width=True,
-            )
-
-        with st.expander("Database, report, and official-source metadata"):
-            metadata = pd.DataFrame(
+            tabs = st.tabs(
                 [
-                    {
-                        "Report Number": clean_text(
-                            result_data.get("report_number")
-                        ),
-                        "Target Market": clean_text(
-                            result_data.get("target_market")
-                        ),
-                        "API Version": clean_text(
-                            result_data.get("api_version")
-                        ),
-                        "Report Schema": clean_text(
-                            result_data.get("report_schema_version")
-                        ),
-                        "Database Version": clean_text(
-                            result_data.get("database_version")
-                        ),
-                        "DB Fingerprint": clean_text(
-                            result_data.get("database_fingerprint")
-                        ),
-                        "Confirmed DB": clean_text(
-                            result_data.get("database_file")
-                        ),
-                        "Confirmed DB File Modified": clean_text(
-                            result_data.get(
-                                "database_last_updated"
-                            )
-                        ),
-                        "Review DB": clean_text(
-                            result_data.get(
-                                "review_database_file"
-                            )
-                        ),
-                        "Review DB File Modified": clean_text(
-                            result_data.get(
-                                "review_database_last_updated"
-                            )
-                        ),
-                        "Source Registry": clean_text(
-                            result_data.get("source_registry_version")
-                        ),
-                        "Report Generated": clean_text(
-                            result_data.get("report_generated_at")
-                        ),
-                    }
+                    MARKET_LABELS.get(target, target)
+                    for target in product["market_results"]
                 ]
+                + (["HALAL 추가검토"] if product["halal_result"] else [])
             )
-            st.dataframe(
-                metadata,
-                hide_index=True,
-                use_container_width=True,
-            )
-
-            sources_dataframe = official_sources_dataframe(result_data)
-            if not sources_dataframe.empty:
-                st.markdown("#### Official regulatory references")
-                for source in result_data.get("official_sources") or []:
-                    if not isinstance(source, dict):
-                        continue
-                    authority = clean_text(source.get("authority"))
-                    title = clean_text(source.get("title"))
-                    url = clean_text(source.get("url"))
-                    scope_note = clean_text(source.get("scope_note"))
-                    if url:
-                        st.markdown(f"- [{authority} — {title}]({url})")
-                    else:
-                        st.markdown(f"- {authority} — {title}")
-                    if scope_note:
-                        st.caption(scope_note)
-
-            st.caption(
-                clean_text(result_data.get("disclaimer"))
-            )
-
-        result_id = result.get("result_id")
-        should_show_review_popup = (
-            st.session_state.review_popup_pending
-            and st.session_state.review_popup_result_id == result_id
-            and st.session_state.review_popup_acknowledged_id
-            != result_id
-            and not review_dataframe.empty
-        )
-
-        if should_show_review_popup:
-            show_manual_review_popup()
+            tab_index = 0
+            for target, result_data in product["market_results"].items():
+                with tabs[tab_index]:
+                    render_market_summary(target, result_data)
+                    if product["halal_result"]:
+                        st.info(
+                            "이 시장의 보고서 장에는 HALAL 독립 분석 결과가 "
+                            "현지 인증·바이어·유통채널 요구에 미치는 영향도 함께 표시됩니다."
+                        )
+                tab_index += 1
+            if product["halal_result"]:
+                with tabs[tab_index]:
+                    render_halal_summary(product["halal_result"])
 
 
 if __name__ == "__main__":
