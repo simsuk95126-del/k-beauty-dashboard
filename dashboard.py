@@ -16,8 +16,9 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
+import report_builder_v3 as report_builder_module
+
 from report_builder_v3 import (
-    REPORT_BUILD_ID,
     TRANSLATION_GLOSSARY_PROMPTS,
     LANGUAGE_FILE_SUFFIXES,
     MARKET_LABELS,
@@ -39,6 +40,14 @@ from report_builder_v3 import (
     safe_filename,
     safe_int,
     status_counts,
+)
+
+# Streamlit ?? ? ?? report_builder? ????? ??????
+# ? ??? ImportError? ???? ??? ?? ?????.
+REPORT_BUILD_ID = getattr(
+    report_builder_module,
+    "REPORT_BUILD_ID",
+    "legacy-report-builder",
 )
 
 
