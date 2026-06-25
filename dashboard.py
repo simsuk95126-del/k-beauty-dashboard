@@ -16,9 +16,9 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
-import report_builder_v3 as report_builder_module
+import report_builder_v911_r2 as report_builder_module
 
-from report_builder_v3 import (
+from report_builder_v911_r2 import (
     TRANSLATION_GLOSSARY_PROMPTS,
     LANGUAGE_FILE_SUFFIXES,
     MARKET_LABELS,
