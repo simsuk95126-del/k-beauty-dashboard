@@ -238,6 +238,9 @@ ENGLISH_DISALLOWED_PATTERNS: Tuple[Tuple[str, str], ...] = (
     (r"\bFully Compliant\b", "A screening result must not claim full compliance."),
     (r"\bCompliance Confirmed\b", "A screening result must not claim confirmed compliance."),
     (r"\bMarket Entry Approved\b", "A screening result must not claim market authorization."),
+    (r"\bCurrent Formula May Be Maintained\b", "Use a direct statement about whether an ingredient change is required."),
+    (r"\bChange to National Regulatory Screening Decision\b", "Use a plain question-and-answer statement instead."),
+    (r"\bRelevant for Separate Certification Purposes or Under Specific Conditions\b", "Use a direct statement of when HALAL documentation is required."),
 )
 
 ENGLISH_TRANSLATION_GLOSSARY_PROMPT = """
@@ -483,12 +486,120 @@ ADDITIONAL_LANGUAGE_FORBIDDEN_ENGLISH_TERMS: Tuple[str, ...] = (
 )
 
 
+# Plain-language English templates for customer-facing reports.
+# These override older internal or literal translations.
+ENGLISH_CANONICAL_EXACT.update({
+    "분석 시장": "Markets Screened",
+    "HALAL 추가검토": "Additional HALAL Review",
+    "선택함": "Selected",
+    "선택하지 않음": "Not Selected",
+    "분석 성분 수": "Number of Ingredients Screened",
+    "제품 성분": "Product Ingredients",
+    "시장별 결과 요약": "Summary by Market",
+    "검토 구분": "Review Type",
+    "시장": "Market",
+    "분석 결과": "Screening Result",
+    "의미": "What This Means",
+    "화장품 성분 규제": "Cosmetics Ingredient Regulation",
+    "시장별 핵심 결론": "Key Findings by Market",
+    "보고서의 범위": "Scope and Limitations",
+    "이번 분석 결과": "Screening Result",
+    "성분별 분석 결과": "Ingredient-Level Results",
+    "설명": "Explanation",
+    "해야 할 일": "Required Action",
+    "완료 기준": "Completion Criteria",
+    "HALAL 검토가 이 시장에서 필요한 경우": "When HALAL Review May Be Relevant to This Market",
+    "질문": "Question",
+    "답변": "Answer",
+    "일반 화장품 판매에 직접 필요한가?": "Is HALAL review directly required for ordinary cosmetics sales?",
+    "HALAL 자료가 필요할 수 있는 경우": "When HALAL documentation may be required",
+    "이번 성분 규제 결과가 달라지는가?": "Does the HALAL review change this ingredient-regulatory result?",
+    "이번 HALAL 검토 결과": "HALAL Finding in This Review",
+    "이번 분석 범위에서는 성분 변경 필요 없음": "No Ingredient Change Required Based on This Screening",
+    "현재 성분명 기준으로 추가 확인할 항목 없음": "No Additional Ingredient-Level Verification Identified",
+    "HALAL 확인 성분": "Ingredient Requiring HALAL Verification",
+    "검토 상태": "Review Status",
+    "시장에 미치는 영향": "Potential Market Impact",
+    "추가로 확인할 항목": "Items Requiring Additional Verification",
+    "확인 이유": "Reason for Verification",
+    "다음 단계": "Next Steps",
+    "성분별 검토 결과": "Ingredient-Level HALAL Review",
+    "확인 이유": "Reason for Verification",
+    "확인 유형": "Verification Type",
+    "중요 안내": "Important Note",
+    "규제 스크리닝 및 HALAL 추가검토": "Regulatory Screening and Additional HALAL Review",
+
+    "금지 성분 확인": "Prohibited Ingredient Identified",
+    "성분 변경 후 재검토 필요": "Revise the Formula and Re-Screen",
+    "금지 성분이 확인되었습니다. 해당 성분을 제거하거나 대체한 뒤 전체 성분 구성을 다시 분석해야 합니다.": "A prohibited ingredient was identified. Remove or replace the ingredient, then re-screen the complete ingredient list.",
+    "추가 확인 필요": "Additional Verification Required",
+    "필요한 자료 확인 전 결론 보류": "Decision Pending Required Documentation",
+    "수동 검토 또는 성분 명칭 확인이 필요한 항목이 남아 있습니다. 지정된 자료를 확인하기 전에는 이 시장의 성분 규제 결과를 확정할 수 없습니다.": "One or more items require manual regulatory review or ingredient-identity verification. The screening result cannot be finalized until the specified documentation has been reviewed.",
+    "규정 적용 여부 확인 필요": "Regulatory Scope Verification Required",
+    "제품 유형과 용도 확인 후 결정": "Determine Applicability After Verifying Product Type and Intended Use",
+    "규정 적용 가능성이 있는 성분이 확인되었습니다. 제품 유형, 사용 목적, 표시·광고 문구를 해당 규정의 적용 범위와 비교한 뒤 진행 여부를 결정해야 합니다.": "An ingredient that may fall within a regulatory scope was identified. Compare the product type, intended use, and claims with the applicable rule before deciding how to proceed.",
+    "제한조건 확인 필요": "Restriction Conditions Require Verification",
+    "제한조건 충족 여부 확인 후 진행 판단": "Proceed Only After Confirming All Restriction Conditions",
+    "제한 성분이 확인되었습니다. 실제 배합농도와 제품 유형, 사용 부위 및 사용 대상을 해당 제한조건과 비교해야 합니다. 조건을 충족한다는 자료를 확보한 뒤 진행 여부를 결정하십시오.": "A restricted ingredient was identified. Compare the actual concentration, product type, application area, and target user with the applicable restriction conditions. Proceed only after documented confirmation that all conditions are met.",
+    "표시 또는 고지사항 반영 필요": "Labeling or Notification Requirements Identified",
+    "필수 표시사항 반영 후 진행 판단": "Proceed After Implementing the Required Labeling or Notification Measures",
+    "표시, 경고, 고지 또는 통지 요건이 확인되었습니다. 필요한 문구와 절차를 라벨 및 제출자료에 반영한 뒤 진행 여부를 결정하십시오.": "A labeling, warning, disclosure, or notification requirement was identified. Implement the required wording and procedures in the label and submission materials before proceeding.",
+    "성분 규제상 즉시 수정할 사항 없음": "No Immediate Ingredient-Regulatory Action Identified",
+    "이번 분석 범위에서는 성분 변경 불필요": "No Ingredient Change Required Based on This Screening",
+    "현재 분석에 사용된 규제 데이터에서는 금지 성분, 제한 성분, 표시 의무 또는 추가 확인 대상이 발견되지 않았습니다. 따라서 성분 규제와 관련하여 즉시 수정할 항목은 없습니다. 다만 제품 등록, 라벨, 광고 및 통관 요건은 별도로 확인해야 합니다.": "No prohibited, restricted, labeling, or verification item was identified in the currently loaded screening data. No immediate ingredient-related change is required. Product registration, labeling, claims, and customs requirements must still be reviewed separately.",
+
+    "HALAL 금지 성분 확인": "HALAL-Prohibited Ingredient Identified",
+    "원료 변경 후 재검토 필요": "Replace the Ingredient and Re-Screen",
+    "HALAL 기준상 금지 성분이 확인되었습니다. 해당 원료를 제거하거나 대체한 뒤 다시 검토해야 합니다.": "An ingredient prohibited under the applicable HALAL criteria was identified. Remove or replace the ingredient, then repeat the HALAL review.",
+    "원료 또는 증빙자료 확인 필요": "Ingredient or Supporting Documentation Requires Verification",
+    "자료 확인 전 인증 가능 여부 판단 불가": "Certification Readiness Cannot Be Determined Until Documentation Is Reviewed",
+    "확정적인 금지 성분은 확인되지 않았습니다. 다만 원료 기원, 복합원료 구성, 제조공정 또는 인증자료를 확인해야 하므로 현재 단계에서는 HALAL 인증 가능 여부를 판단할 수 없습니다.": "No confirmed prohibited ingredient was identified. However, ingredient origin, compound-ingredient composition, manufacturing process, or certification documentation requires verification. HALAL certification readiness cannot be determined at this stage.",
+    "인증기관 조건 확인 후 준비 가능": "Certification Preparation May Begin After Verifying Certification-Body Requirements",
+    "금지 성분은 확인되지 않았습니다. 관련 사용조건과 인증기관 요구사항을 확인한 뒤 인증 준비 여부를 결정하십시오.": "No prohibited ingredient was identified. Verify the applicable use conditions and certification-body requirements before deciding whether to begin certification preparation.",
+    "성분명 기준 추가 확인 대상 없음": "No Additional Ingredient-Level Verification Identified",
+    "현재 성분명과 분석 데이터에서는 HALAL 위험 후보가 확인되지 않았습니다. 이 결과는 완제품의 HALAL 인증 적합성 또는 인증 완료를 의미하지 않습니다.": "No HALAL risk indicator was identified from the ingredient names and screening data reviewed. This does not mean that the finished product is HALAL-compliant or certified.",
+
+    "일반 화장품 판매에는 직접 필요하지 않습니다.": "No, not for ordinary cosmetics sales.",
+    "수입자, 유통사 또는 인증기관의 요구에 따라 필요할 수 있습니다.": "It may be required by the importer, distributor, or certification body.",
+    "판매 국가와 유통채널에 따라 다릅니다.": "It depends on the destination country and sales channel.",
+    "회원국과 거래 상대방의 요구에 따라 다릅니다.": "It depends on the member country and the requirements of the trading partner.",
+    "제품을 할랄 제품으로 판매하거나 바이어·유통채널이 HALAL 인증자료를 요구하는 경우": "When the product is marketed as HALAL or a buyer or distribution channel requires HALAL certification documentation.",
+    "할랄 표시를 사용하거나 거래 상대방이 원료 기원 또는 인증자료를 요구하는 경우": "When HALAL labeling is used or the trading partner requires ingredient-origin or certification documentation.",
+    "할랄 인증이 요구되는 국가에 판매하거나 바이어·유통채널이 관련 자료를 요구하는 경우": "When selling in a country that requires HALAL certification, or when a buyer or distribution channel requests supporting documentation.",
+    "수입자, 바이어 또는 유통채널이 할랄 표시나 인증자료를 요구하는 경우": "When an importer, buyer, or distribution channel requires HALAL labeling or certification documentation.",
+    "달라지지 않습니다. 이 시장의 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.": "No. The ingredient-regulatory screening and the HALAL review are separate assessments.",
+    "달라지지 않습니다. 화장품 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.": "No. The cosmetics ingredient-regulatory screening and the HALAL review are separate assessments.",
+    "달라지지 않습니다. 국가별 화장품 성분 규제와 HALAL 요건은 별도로 확인합니다.": "No. Country-specific cosmetics ingredient regulations and HALAL requirements are assessed separately.",
+    "달라지지 않습니다. EAC 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.": "No. The EAC ingredient-regulatory screening and the HALAL review are separate assessments.",
+
+    "현재 분석 결과, 성분 규제와 관련하여 즉시 수정해야 할 항목은 없습니다.": "No immediate ingredient-related change is required based on this screening.",
+    "제품 등록, 라벨, 광고 및 통관 요건은 별도로 확인해야 합니다.": "Product registration, labeling, claims, and customs requirements must still be reviewed separately.",
+    "현재 성분명 기준으로 별도 확인이 필요한 HALAL 위험 후보는 발견되지 않았습니다.": "No HALAL risk indicator requiring additional ingredient-level verification was identified from the current ingredient names.",
+    "위 조치를 완료하고, 완료를 입증할 자료를 보관하십시오.": "Complete the required actions and retain evidence showing that each action has been completed.",
+    "HALAL 인증 또는 관련 유통채널을 추진하는 경우 HALAL 장의 확인사항도 완료하십시오.": "When pursuing HALAL certification or a HALAL-related sales channel, also complete the verification items in the HALAL chapter.",
+    "국가별 화장품 성분 규제와 별도로 원료 기원, 제조공정 및 인증자료를 확인합니다.": "This chapter reviews ingredient origin, manufacturing processes, and certification documentation separately from country-specific cosmetics ingredient regulations.",
+    "최종 인증 여부는 공급사 자료, 제조공정 및 인증기관 심사를 통해 결정됩니다.": "Final certification status is determined through supplier documentation, manufacturing-process review, and assessment by the certification body.",
+    "필요한 자료를 확보하고 확인 결과를 기록하십시오.": "Obtain the required documentation and record the verification outcome.",
+    "적용할 HALAL 인증기관과 인증 범위를 정하십시오.": "Select the HALAL certification body and define the certification scope.",
+    "원료 기원, 완제품 제조공정, 가공보조제 및 교차오염 관리자료를 준비하십시오.": "Prepare documentation covering ingredient origin, finished-product manufacturing, processing aids, and cross-contamination controls.",
+    "인증기관이 요구하는 자료를 제출하고 최종 심사를 진행하십시오.": "Submit the required documentation to the certification body and proceed with the final assessment.",
+    "이 검토 결과는 HALAL 인증 완료를 의미하지 않습니다.": "This review does not mean that HALAL certification has been completed.",
+    "최종 판단은 공급사 증빙, 제조공정, 교차오염 관리 및 인증기관 심사를 통해 이루어집니다.": "The final determination depends on supplier evidence, manufacturing processes, cross-contamination controls, and review by the certification body.",
+
+    "이 장에서는 해당 시장의 성분 분석 결과와 필요한 조치를 설명합니다.": "This chapter explains the ingredient-level findings and required actions for this market.",
+    "HALAL 검토는 국가별 화장품 성분 규제 분석과 별개입니다. 각 시장 장에서는 HALAL 자료가 실제로 필요한 경우만 간단히 설명합니다.": "The HALAL review is separate from country-specific cosmetics ingredient regulation. Each market chapter explains only when HALAL documentation may be relevant.",
+    "이 보고서는 화장품 성분 규제와 HALAL 관련 위험 후보를 사전에 확인하기 위한 자료입니다. 제품 등록, 통관 승인, 판매 허가 또는 HALAL 인증을 보장하지 않습니다. 실제 진행 전 최신 공식 규정, 배합농도, 제품 유형, 라벨, 공급사 자료 및 인증기관 요구사항을 별도로 확인해야 합니다.": "This report is a preliminary screening of cosmetics ingredient regulations and potential HALAL risk indicators. It does not guarantee product registration, customs clearance, sales authorization, or HALAL certification. Before proceeding, verify the latest official rules, actual concentrations, product type, labeling, supplier documentation, and certification-body requirements.",
+    "전체 {len(ingredients)}개 성분을 분석했습니다. 전체 성분 목록과 성분별 결과는 함께 제공되는 Excel 파일에서 확인할 수 있습니다.": "The full ingredient list and ingredient-level results are provided in the accompanying Excel file.",
+    "추가 확인이 필요한 성분은 없습니다. 전체 결과는 Excel 파일에서 확인할 수 있습니다.": "No ingredient requires additional verification. The complete results are provided in the accompanying Excel file.",
+})
+
+
 def _build_translation_glossary_prompt(language_code: str) -> str:
     glossary = ADDITIONAL_LANGUAGE_CANONICAL_EXACT.get(language_code)
     if not glossary:
         return ""
     lines = [
-        "Use the following controlled regulatory terminology exactly whenever the corresponding Korean concept appears:"
+        "The source text is polished English. Use the following controlled regulatory terminology exactly:"
     ]
     preferred_keys = (
         "통과", "금지", "제한", "경고·표시 필요", "규제 대상", "수동 검토",
@@ -496,11 +607,13 @@ def _build_translation_glossary_prompt(language_code: str) -> str:
         "필요한 자료", "조치 완료 기준", "할랄 위험 후보 미확인",
     )
     for key in preferred_keys:
-        lines.append(f"- {key} = {glossary[key]}")
+        english_term = ENGLISH_CANONICAL_EXACT.get(key, key)
+        lines.append(f"- {english_term} = {glossary[key]}")
     lines.extend([
-        "A screening result must never be translated as full compliance, confirmed compliance, approval, or market-entry authorization.",
-        "Use wording equivalent to regulatory screening, not regulatory approval or legal clearance.",
+        "Do not translate a screening result as full compliance, confirmed compliance, approval, or market-entry authorization.",
+        "Use the local-language equivalent of regulatory screening, not regulatory approval or legal clearance.",
         "Write HALAL in uppercase except when preserving an official quoted title.",
+        "Prefer a short natural sentence over a literal translation of English word order.",
     ])
     return "\n".join(lines)
 
@@ -675,6 +788,34 @@ ENGLISH_CANONICAL_EXACT.update({
     "K-Beauty Global Compliance | 다중시장 규제 및 HALAL 추가검토": "K-Beauty Global Compliance | Multi-Market Regulatory Screening and Additional HALAL Review",
 })
 
+# Final customer-facing English overrides. These must remain after all legacy
+# dictionaries so older internal labels cannot overwrite the plain-language text.
+ENGLISH_CANONICAL_EXACT.update({
+    "검토 구분": "Review Type",
+    "시장별 결과 요약": "Summary by Market",
+    "HALAL 위험 후보 미확인": "No HALAL Risk Indicators Identified",
+    "검토 결과": "Review Result",
+    "보고서 사용 범위": "Scope of Use",
+    "이 보고서는 성분 규제와 HALAL 위험 후보를 사전에 확인하기 위한 자료입니다. 제품 등록, 통관 승인, 판매 허가 또는 HALAL 인증을 보장하지 않으므로 실제 진행 전 최신 공식 기준과 제품 자료를 별도로 확인해야 합니다.": "This report is a preliminary screening of ingredient regulations and potential HALAL risk indicators. It does not guarantee product registration, customs clearance, sales authorization, or HALAL certification. Verify the latest official requirements and product documentation before proceeding.",
+    "HALAL 검토는 국가별 화장품 성분 규제 분석과 별도로 판단합니다.": "The HALAL review is assessed separately from country-specific cosmetics ingredient regulation.",
+    "HALAL 추가검토": "Additional HALAL Review",
+    "이번 HALAL 검토 결과": "HALAL Finding in This Review",
+    "이번 분석 결과": "Screening Result",
+    "필요한 조치": "Required Actions",
+    "즉시 필요한 성분 수정 없음": "No Immediate Ingredient Change Required",
+    "금지 성분 제거 또는 대체 후 전체 성분 재분석": "Remove or replace the prohibited ingredient, then re-screen the complete ingredient list.",
+    "제한 성분의 배합농도, 제품 유형 및 사용조건 확인": "Verify the concentration, product type, and conditions of use for each restricted ingredient.",
+    "필수 표시·경고·고지 또는 통지 요건 반영": "Implement all required labeling, warning, disclosure, or notification measures.",
+    "제품 유형과 사용 목적에 따른 규정 적용 여부 확인": "Verify whether the regulation applies to the product type and intended use.",
+    "공식 규정 원문과 적용조건 수동 확인": "Manually verify the official regulatory text and applicable conditions.",
+    "공식 INCI, CAS 번호 또는 공급사 자료 확인": "Verify the official INCI name, CAS number, or supplier documentation.",
+    "HALAL 추가검토 여부": "Additional HALAL Review Selected",
+    "이 시장과 HALAL 검토의 관련성": "Is HALAL review directly required for ordinary cosmetics sales?",
+    "HALAL 자료가 필요한 경우": "When HALAL documentation may be required",
+    "이 시장의 성분 규제 결과에 미치는 영향": "Does the HALAL review change this ingredient-regulatory result?",
+    "HALAL 추가검토상 필수 보완조치 없음": "No Additional HALAL Corrective Action Required",
+})
+
 STATUS_ORDER = [
     "BANNED",
     "REVIEW_REQUIRED",
@@ -796,64 +937,65 @@ def market_decision(result_data: dict) -> Dict[str, str]:
     status = dominant_status(result_data)
     if status == "BANNED":
         return {
-            "overall": "부적합",
-            "possibility": "현재 처방으로 진행 불가",
-            "conclusion": "금지 성분이 확인되어 현재 처방으로는 해당 시장의 성분 규제 단계를 통과할 수 없습니다. 해당 성분을 제거하거나 대체한 뒤 전체 처방을 다시 분석해야 합니다.",
+            "overall": "금지 성분 확인",
+            "possibility": "성분 변경 후 재검토 필요",
+            "conclusion": "금지 성분이 확인되었습니다. 해당 성분을 제거하거나 대체한 뒤 전체 성분 구성을 다시 분석해야 합니다.",
         }
     if status in {"REVIEW_REQUIRED", "VERIFICATION_REQUIRED"}:
         return {
-            "overall": "확인 필요",
-            "possibility": "확인 완료 전 판단 보류",
-            "conclusion": "금지 성분은 확인되지 않았으나 수동 검토 또는 명칭 검증 대상이 남아 있습니다. 지정된 자료를 확인하기 전에는 성분 규제 적합 여부를 확정하지 않습니다.",
+            "overall": "추가 확인 필요",
+            "possibility": "필요한 자료 확인 전 결론 보류",
+            "conclusion": "수동 검토 또는 성분 명칭 확인이 필요한 항목이 남아 있습니다. 지정된 자료를 확인하기 전에는 이 시장의 성분 규제 결과를 확정할 수 없습니다.",
         }
     if status == "REGULATED":
         return {
-            "overall": "적용 범위 확인 필요",
-            "possibility": "적용 범위 확인 후 결정",
-            "conclusion": "규제 대상 성분이 확인되었습니다. 제품 유형, 사용 목적, 표시·광고 문구와 해당 규정의 적용 범위를 확인한 뒤 진행 여부를 결정해야 합니다.",
+            "overall": "규정 적용 여부 확인 필요",
+            "possibility": "제품 유형과 용도 확인 후 결정",
+            "conclusion": "규정 적용 가능성이 있는 성분이 확인되었습니다. 제품 유형, 사용 목적, 표시·광고 문구를 해당 규정의 적용 범위와 비교한 뒤 진행 여부를 결정해야 합니다.",
         }
     if status == "RESTRICTED":
         return {
-            "overall": "조건부 가능",
-            "possibility": "제한조건 충족 후 진행 가능",
-            "conclusion": "제한 성분이 확인되었습니다. 실제 배합농도, 제품 유형, 사용 부위·대상과 제한조건을 대조하고 조건 충족을 입증한 뒤 다음 단계로 진행해야 합니다.",
+            "overall": "제한조건 확인 필요",
+            "possibility": "제한조건 충족 여부 확인 후 진행 판단",
+            "conclusion": "제한 성분이 확인되었습니다. 실제 배합농도와 제품 유형, 사용 부위 및 사용 대상을 해당 제한조건과 비교해야 합니다. 조건을 충족한다는 자료를 확보한 뒤 진행 여부를 결정하십시오.",
         }
     if status == "WARNING_REQUIRED":
         return {
-            "overall": "조건부 가능",
-            "possibility": "표시·고지요건 반영 후 진행 가능",
-            "conclusion": "표시·경고·고지 또는 통지 요건이 확인되었습니다. 필요한 문구와 절차를 라벨 및 제출자료에 반영한 뒤 다음 단계로 진행할 수 있습니다.",
+            "overall": "표시 또는 고지사항 반영 필요",
+            "possibility": "필수 표시사항 반영 후 진행 판단",
+            "conclusion": "표시, 경고, 고지 또는 통지 요건이 확인되었습니다. 필요한 문구와 절차를 라벨 및 제출자료에 반영한 뒤 진행 여부를 결정하십시오.",
         }
     return {
-        "overall": "성분 규제 스크리닝 통과",
-        "possibility": "현재 처방 유지 가능",
-        "conclusion": "현재 로드된 규제 데이터에서 금지·제한·표시·추가 확인 대상이 확인되지 않았습니다. 성분 규제상 필수 보완조치는 없으며, 현재 처방을 유지한 상태로 제품 등록·표시·통관 등 다음 준비단계를 진행할 수 있습니다.",
+        "overall": "성분 규제상 즉시 수정할 사항 없음",
+        "possibility": "이번 분석 범위에서는 성분 변경 필요 없음",
+        "conclusion": "현재 분석에 사용된 규제 데이터에서는 금지 성분, 제한 성분, 표시 의무 또는 추가 확인 대상이 발견되지 않았습니다. 따라서 성분 규제와 관련하여 즉시 수정할 항목은 없습니다. 다만 제품 등록, 라벨, 광고 및 통관 요건은 별도로 확인해야 합니다.",
     }
+
 
 def halal_decision(result_data: dict) -> Dict[str, str]:
     status = dominant_status(result_data)
     if status == "BANNED":
         return {
-            "overall": "할랄 금지 성분 확인",
-            "possibility": "현재 처방 기준 할랄 인증 추진 곤란",
-            "conclusion": "확정 할랄 금지 성분이 확인되어 현재 처방으로 할랄 인증을 추진하기 어렵습니다. 원료 대체 후 재검토가 필요합니다.",
+            "overall": "HALAL 금지 성분 확인",
+            "possibility": "원료 변경 후 재검토 필요",
+            "conclusion": "HALAL 기준상 금지 성분이 확인되었습니다. 해당 원료를 제거하거나 대체한 뒤 다시 검토해야 합니다.",
         }
     if status in {"REVIEW_REQUIRED", "VERIFICATION_REQUIRED", "REGULATED"}:
         return {
-            "overall": "증빙자료 확인 필요",
-            "possibility": "원료 기원·구성·공정·인증자료 확인 전 판단 보류",
-            "conclusion": "현재 확인된 확정 금지 성분은 없으나 원료 기원, 복합원료 구성, 제조공정 또는 인증자료 확인이 필요하여 할랄 인증 추진 가능성을 아직 확정할 수 없습니다.",
+            "overall": "원료 또는 증빙자료 확인 필요",
+            "possibility": "자료 확인 전 인증 가능 여부 판단 불가",
+            "conclusion": "확정적인 금지 성분은 확인되지 않았습니다. 다만 원료 기원, 복합원료 구성, 제조공정 또는 인증자료를 확인해야 하므로 현재 단계에서는 HALAL 인증 가능 여부를 판단할 수 없습니다.",
         }
     if status == "RESTRICTED":
         return {
             "overall": "조건 확인 필요",
-            "possibility": "조건 확인 후 인증 준비 가능",
-            "conclusion": "확정 금지 성분은 확인되지 않았으며 관련 사용조건과 인증기관 요구사항을 충족하면 할랄 인증 준비가 가능합니다.",
+            "possibility": "인증기관 조건 확인 후 준비 가능",
+            "conclusion": "금지 성분은 확인되지 않았습니다. 관련 사용조건과 인증기관 요구사항을 확인한 뒤 인증 준비 여부를 결정하십시오.",
         }
     return {
-        "overall": "할랄 위험 후보 미확인",
-        "possibility": "인증 준비 가능",
-        "conclusion": "현재 분석 데이터에서 할랄 위험 후보가 확인되지 않았으나, 완제품의 할랄 인증 적합성 또는 인증 완료를 의미하지는 않습니다.",
+        "overall": "HALAL 위험 후보 미확인",
+        "possibility": "현재 성분명 기준으로 추가 확인할 항목 없음",
+        "conclusion": "현재 성분명과 분석 데이터에서는 HALAL 위험 후보가 확인되지 않았습니다. 이 결과는 완제품의 HALAL 인증 적합성 또는 인증 완료를 의미하지 않습니다.",
     }
 
 
@@ -1097,22 +1239,34 @@ def halal_market_relation(target: str) -> Dict[str, str]:
     target = clean_text(target).upper()
     if target == "SFDA":
         return {
-            "level": "직접 관련 가능성이 높음",
-            "impact": "현지 수입자·유통사·인증 요구에 따라 원료 기원 및 인증자료가 시장 진입 준비에 직접 영향을 줄 수 있습니다.",
+            "direct_required": "수입자, 유통사 또는 인증기관의 요구에 따라 필요할 수 있습니다.",
+            "required_when": "할랄 표시를 사용하거나 거래 상대방이 원료 기원 또는 인증자료를 요구하는 경우",
+            "screening_effect": "달라지지 않습니다. 화장품 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
+            "relevance": "수입자, 유통사 또는 인증기관의 요구에 따라 필요할 수 있습니다.",
+            "regulatory_effect": "달라지지 않습니다. 화장품 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
         }
     if target == "ASEAN":
         return {
-            "level": "국가별 직접 또는 조건부 관련",
-            "impact": "ASEAN 권역 중 인도네시아·말레이시아 등에서는 할랄 인증 또는 관련 자료가 직접 영향을 줄 수 있으며, 기타 국가는 바이어·유통채널 요구에 따라 달라집니다.",
+            "direct_required": "판매 국가와 유통채널에 따라 다릅니다.",
+            "required_when": "할랄 인증이 요구되는 국가에 판매하거나 바이어·유통채널이 관련 자료를 요구하는 경우",
+            "screening_effect": "달라지지 않습니다. 국가별 화장품 성분 규제와 HALAL 요건은 별도로 확인합니다.",
+            "relevance": "판매 국가와 유통채널에 따라 다릅니다.",
+            "regulatory_effect": "달라지지 않습니다. 국가별 화장품 성분 규제와 HALAL 요건은 별도로 확인합니다.",
         }
     if target == "EAC":
         return {
-            "level": "회원국·수입자·유통채널별 조건부 관련",
-            "impact": "동아프리카공동체(EAC)의 국가 화장품 규제판정을 변경하지는 않지만, 회원국별 수입자·바이어·유통채널 또는 할랄 표시 전략에 따라 원료 기원과 인증자료가 추가로 요구될 수 있습니다.",
+            "direct_required": "회원국과 거래 상대방의 요구에 따라 다릅니다.",
+            "required_when": "수입자, 바이어 또는 유통채널이 할랄 표시나 인증자료를 요구하는 경우",
+            "screening_effect": "달라지지 않습니다. EAC 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
+            "relevance": "회원국과 거래 상대방의 요구에 따라 다릅니다.",
+            "regulatory_effect": "달라지지 않습니다. EAC 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
         }
     return {
-        "level": "별도 인증 목적 또는 조건부 관련",
-        "impact": "해당 시장의 국가 화장품 규제판정을 변경하지는 않지만, 할랄 제품으로 판매하거나 바이어·유통채널이 인증자료를 요구하는 경우 시장 진입 준비에 영향을 줄 수 있습니다.",
+        "direct_required": "일반 화장품 판매에는 직접 필요하지 않습니다.",
+        "required_when": "제품을 할랄 제품으로 판매하거나 바이어·유통채널이 HALAL 인증자료를 요구하는 경우",
+        "screening_effect": "달라지지 않습니다. 이 시장의 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
+        "relevance": "일반 화장품 판매에는 직접 필요하지 않습니다.",
+        "regulatory_effect": "달라지지 않습니다. 이 시장의 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
     }
 
 
@@ -1201,6 +1355,19 @@ def halal_result_rows(
         )
     return rows
 
+def summary_required_action(result_data: dict) -> str:
+    status = dominant_status(result_data)
+    return {
+        "PASS": "즉시 필요한 성분 수정 없음",
+        "BANNED": "금지 성분 제거 또는 대체 후 전체 성분 재분석",
+        "RESTRICTED": "제한 성분의 배합농도, 제품 유형 및 사용조건 확인",
+        "WARNING_REQUIRED": "필수 표시·경고·고지 또는 통지 요건 반영",
+        "REGULATED": "제품 유형과 사용 목적에 따른 규정 적용 여부 확인",
+        "REVIEW_REQUIRED": "공식 규정 원문과 적용조건 수동 확인",
+        "VERIFICATION_REQUIRED": "공식 INCI, CAS 번호 또는 공급사 자료 확인",
+    }.get(status, "추가 확인 필요")
+
+
 def market_summary_rows(
     product_name: str,
     target: str,
@@ -1224,8 +1391,8 @@ def market_summary_rows(
         ["종합 판정", decision["overall"]],
         ["성분 규제 진행 상태", decision["possibility"]],
         ["최종결론", decision["conclusion"]],
-        ["분석결과에 따른 필수 조치", priority_actions(result_data, target)],
-        [("조치 완료 후 다음 단계" if attention_details(result_data) else "다음 진행 단계"), " / ".join(general_next_steps(target))],
+        ["필요한 조치", summary_required_action(result_data)],
+        [("조치 완료 후 다음 단계" if attention_details(result_data) else "다음 진행 단계"), " / ".join(general_next_steps(target)[:2])],
         ["검토 기준 DB", clean_text(result_data.get("database_file"))],
         ["DB 업데이트일", clean_text(result_data.get("database_last_updated"))],
         ["보고서 생성일", clean_text(result_data.get("report_generated_at"), datetime.now().strftime("%Y-%m-%d %H:%M:%S"))],
@@ -1237,10 +1404,10 @@ def market_summary_rows(
         rows.extend(
             [
                 ["HALAL 추가검토 여부", "적용"],
-                ["해당 시장과의 관련성", relation["level"]],
-                ["국가 규제판정 변경 여부", "변경 없음"],
-                ["HALAL 시장 영향", relation["impact"]],
-                ["HALAL 종합판정", hdecision["overall"]],
+                ["이 시장과 HALAL 검토의 관련성", relation["relevance"]],
+                ["HALAL 자료가 필요한 경우", relation["required_when"]],
+                ["이 시장의 성분 규제 결과에 미치는 영향", relation["regulatory_effect"]],
+                ["이번 HALAL 검토 결과", hdecision["overall"]],
                 ["연결된 HALAL 확인 성분", linked_halal_ingredients(halal_result)],
                 ["HALAL 필수 조치", " / ".join(
                     prioritized_action_summaries(halal_result, "HALAL")
@@ -1936,6 +2103,12 @@ def create_product_report_bytes(
     language_code: str = "ko",
     translator: Optional[Translator] = None,
 ) -> bytes:
+    """Create a market-by-market screening report.
+
+    English and Korean retain the complete report. Other languages use the same
+    core findings but omit repeated glossary and interpretation sections so the
+    localized report remains concise and less vulnerable to literal translation.
+    """
     document = Document()
     section = document.sections[0]
     section.top_margin = Inches(0.65)
@@ -1951,6 +2124,7 @@ def create_product_report_bytes(
     normal.paragraph_format.line_spacing = 1.15
     normal.paragraph_format.space_after = Pt(3)
 
+    compact_language = language_code not in {"ko", "en"}
     market_labels = [
         MARKET_LABELS.get(target, target)
         for target in selected_markets
@@ -1973,9 +2147,15 @@ def create_product_report_bytes(
     overview_rows = [
         ("제품명", product_name),
         ("입력 파일", source_file),
-        ("국가 규제시장", " · ".join(market_labels) or "없음"),
-        ("추가 검토", "HALAL 성분 기원·구성·인증자료 검토" if halal_result is not None else "미선택"),
-        ("검사 성분 수", max([safe_int(data.get("total_checked")) for data in market_results_map.values()] + ([safe_int(halal_result.get("total_checked"))] if halal_result else [0]))),
+        ("분석 시장", " · ".join(market_labels) or "없음"),
+        ("HALAL 추가검토", "선택함" if halal_result is not None else "선택하지 않음"),
+        (
+            "분석 성분 수",
+            max(
+                [safe_int(data.get("total_checked")) for data in market_results_map.values()]
+                + ([safe_int(halal_result.get("total_checked"))] if halal_result else [0])
+            ),
+        ),
     ]
     for row_index, (label, value) in enumerate(overview_rows):
         _doc_shade(info.cell(row_index, 0), GRAY)
@@ -1991,7 +2171,7 @@ def create_product_report_bytes(
         ]
         for item in result_details(first_result)
     ]
-    _section_title(document, "1. 제품 성분 구성")
+    _section_title(document, "1. 제품 성분")
     if len(ingredients) <= 24:
         _add_simple_table(
             document,
@@ -2003,10 +2183,10 @@ def create_product_report_bytes(
     else:
         paragraph = document.add_paragraph()
         paragraph.add_run(
-            f"전체 {len(ingredients)}개 성분을 분석했습니다. 전체 성분 목록과 성분별 판정은 함께 제공되는 Excel 파일을 참조하십시오."
+            f"전체 {len(ingredients)}개 성분을 분석했습니다. 전체 성분 목록과 성분별 결과는 함께 제공되는 Excel 파일에서 확인할 수 있습니다."
         )
 
-    _section_title(document, "2. 시장별 종합판정")
+    _section_title(document, "2. 시장별 결과 요약")
     summary_rows: List[List[str]] = []
     for target in selected_markets:
         result_data = market_results_map.get(target)
@@ -2015,7 +2195,7 @@ def create_product_report_bytes(
         decision = market_decision(result_data)
         summary_rows.append(
             [
-                "국가 규제",
+                "화장품 성분 규제",
                 target,
                 decision["overall"],
                 decision["possibility"],
@@ -2025,7 +2205,7 @@ def create_product_report_bytes(
         decision = halal_decision(halal_result)
         summary_rows.append(
             [
-                "추가 검토",
+                "HALAL 추가검토",
                 "HALAL",
                 decision["overall"],
                 decision["possibility"],
@@ -2033,41 +2213,27 @@ def create_product_report_bytes(
         )
     _add_simple_table(
         document,
-        ["구분", "대상", "종합판정", "가능성 판단"],
+        ["검토 구분", "시장", "분석 결과", "의미"],
         summary_rows,
         BLUE,
         8.8,
         2,
     )
 
-    _section_title(document, "3. 통합 최종결론")
-    for target in selected_markets:
-        result_data = market_results_map.get(target)
-        if not result_data:
-            continue
-        decision = market_decision(result_data)
-        paragraph = document.add_paragraph()
-        paragraph.add_run(f"{MARKET_LABELS.get(target, target)}: ").bold = True
-        paragraph.add_run(decision["conclusion"])
-    if halal_result is not None:
-        decision = halal_decision(halal_result)
-        paragraph = document.add_paragraph()
-        paragraph.add_run("HALAL: ").bold = True
-        paragraph.add_run(decision["conclusion"])
-        paragraph = document.add_paragraph()
-        run = paragraph.add_run(
-            "HALAL 결과는 독립 장에서 상세히 설명하며, 각 시장 장에서는 해당 결과가 현지 인증·바이어·유통채널 요구에 미치는 영향만 연결하여 표시합니다."
-        )
-        run.font.size = Pt(9.2)
-        run.font.color.rgb = DOC_MUTED
-
-    _section_title(document, "4. 면책 및 사용 범위")
+    _section_title(document, "3. 보고서 사용 범위")
     paragraph = document.add_paragraph()
     run = paragraph.add_run(
-        "본 보고서는 국가별 화장품 성분 규제 및 할랄 위험 후보를 사전에 선별하는 문서입니다. 제품 등록, 통관 승인, 판매 허가, 할랄 인증서 또는 최종 법률 판단을 대신하지 않습니다. 실제 진행 전 최신 공식 규정, 처방 농도, 제품 유형, 라벨, 공급사 자료 및 인증기관 요구사항을 별도로 확인해야 합니다."
+        "이 보고서는 성분 규제와 HALAL 위험 후보를 사전에 확인하기 위한 자료입니다. 제품 등록, 통관 승인, 판매 허가 또는 HALAL 인증을 보장하지 않으므로 실제 진행 전 최신 공식 기준과 제품 자료를 별도로 확인해야 합니다."
     )
     run.font.size = Pt(9.2)
     run.font.color.rgb = DOC_MUTED
+    if halal_result is not None:
+        paragraph = document.add_paragraph()
+        run = paragraph.add_run(
+            "HALAL 검토는 국가별 화장품 성분 규제 분석과 별도로 판단합니다."
+        )
+        run.font.size = Pt(9.2)
+        run.font.color.rgb = DOC_MUTED
 
     chapter_number = 2
     for target in selected_markets:
@@ -2075,64 +2241,67 @@ def create_product_report_bytes(
         if not result_data:
             continue
 
-        document.add_page_break()
+        page_anchor = document.add_paragraph()
+        page_anchor.paragraph_format.page_break_before = True
+        page_anchor.paragraph_format.space_after = Pt(0)
+
         market_label = MARKET_LABELS.get(target, target)
         _chapter_header(
             document,
             chapter_number,
             f"{market_label} 규제 분석 결과",
-            "시장별 분석은 이전 시장과 분리하여 새 장에서 시작합니다.",
+            "이 장에서는 해당 시장의 성분 분석 결과와 필요한 조치를 설명합니다.",
         )
         chapter_number += 1
         decision = market_decision(result_data)
-        _decision_box(document, "시장별 최종결론", decision["possibility"])
+        _decision_box(document, "이번 분석 결과", decision["possibility"])
 
-        _section_title(document, "1. 분석 세부내용")
+        _section_title(document, "1. 성분별 분석 결과")
         rows = _market_attention_rows(result_data)
         if rows:
             _add_simple_table(
                 document,
-                ["성분", "판정", "결과 해석"],
+                ["성분", "판정", "설명"],
                 rows,
                 NAVY,
                 8.6,
                 1,
             )
         else:
-            _bullet(document, "추가 확인이 필요한 성분이 없습니다. 전체 결과는 Excel을 참조하십시오.")
+            _bullet(document, "추가 확인이 필요한 성분은 없습니다. 전체 결과는 Excel 파일에서 확인할 수 있습니다.")
 
-        _section_title(document, "2. 분석결과에 따른 조치")
+        _section_title(document, "2. 필요한 조치")
         action_rows = result_action_rows(result_data, target)
         if action_rows:
             _add_simple_table(
                 document,
-                ["성분", "판정", "필수 조치", "필요한 자료", "조치 완료 기준"],
+                ["성분", "판정", "해야 할 일", "필요한 자료", "완료 기준"],
                 action_rows,
                 BLUE,
                 8.1,
                 1,
             )
         else:
-            _bullet(document, "성분 규제상 필수 보완조치가 없습니다. 현재 처방을 유지할 수 있습니다.")
-            _bullet(document, "이 결론은 현재 로드된 성분 규제 데이터에 대한 스크리닝 결과이며 제품 등록·표시·통관 완료를 의미하지 않습니다.")
+            _bullet(document, "현재 분석 결과, 성분 규제와 관련하여 즉시 수정해야 할 항목은 없습니다.")
+            _bullet(document, "제품 등록, 라벨, 광고 및 통관 요건은 별도로 확인해야 합니다.")
 
         section_index = 3
         if halal_result is not None:
             _section_title(
                 document,
-                f"{section_index}. HALAL 추가검토의 해당 시장 영향",
+                f"{section_index}. HALAL 검토가 이 시장에서 필요한 경우",
             )
             section_index += 1
             relation = halal_market_relation(target)
             relation_table = [
-                ["해당 시장과의 관련성", relation["level"]],
-                ["국가 규제판정 변경 여부", "변경 없음"],
-                ["시장 영향", relation["impact"]],
-                ["HALAL 종합판정", halal_decision(halal_result)["overall"]],
+                ["일반 화장품 판매에 직접 필요한가?", relation["direct_required"]],
+                ["HALAL 자료가 필요할 수 있는 경우", relation["required_when"]],
+                ["이번 성분 규제 결과가 달라지는가?", relation["screening_effect"]],
+                ["이번 HALAL 검토 결과", halal_decision(halal_result)["overall"]],
             ]
             _add_simple_table(
                 document,
-                ["구분", "내용"],
+                ["질문", "답변"],
                 relation_table,
                 BLUE,
                 8.7,
@@ -2141,63 +2310,51 @@ def create_product_report_bytes(
             if link_rows:
                 _add_simple_table(
                     document,
-                    ["HALAL 확인 대상", "검토 상태", "해당 시장 영향", "필요한 자료"],
+                    ["HALAL 확인 성분", "검토 상태", "시장에 미치는 영향", "필요한 자료"],
                     link_rows,
                     NAVY,
                     8.2,
                     1,
                 )
-            else:
-                _bullet(document, "HALAL 추가검토에서 별도의 확인 대상이 발견되지 않았습니다.")
+            # When no HALAL verification item is linked, the concise answer table
+            # above is sufficient; do not add a repetitive paragraph.
 
-        _section_title(document, f"{section_index}. 수동확인 항목")
-        section_index += 1
         manual = _manual_report_rows(result_data, target)
         if manual:
+            _section_title(document, f"{section_index}. 추가로 확인할 항목")
+            section_index += 1
             _add_simple_table(
                 document,
-                ["성분", "현재 판정", "확인 사유", "필요한 조치"],
+                ["성분", "현재 판정", "확인 이유", "필요한 조치"],
                 manual,
                 BLUE,
                 8.4,
                 1,
             )
-        else:
-            _bullet(document, "국가 규제 수동확인 항목이 없습니다.")
 
-        _section_title(document, f"{section_index}. 판정 해석 시 주의사항")
-        section_index += 1
-        _bullet(document, "통과는 현재 로드된 데이터에서 일치 항목이 없다는 의미이며 최종 수입·판매 허가를 보증하지 않습니다.")
-        _bullet(document, "제한·규제 대상은 실제 농도, 제품유형, 용도와 표시정보를 함께 확인해야 합니다.")
-        _bullet(document, "수동검토와 명칭검증 항목은 확인 전 최종 적합 판정으로 취급하면 안 됩니다.")
-        if halal_result is not None:
-            _bullet(document, "HALAL 결과는 국가 화장품 규제판정을 변경하지 않으며 인증·바이어·유통요건에 대한 별도 영향으로 해석해야 합니다.")
-
-        next_title = "조치 완료 후 다음 단계" if action_rows else "다음 진행 단계"
-        _section_title(document, f"{section_index}. {next_title}")
-        section_index += 1
+        _section_title(document, f"{section_index}. 다음 단계")
         if action_rows:
-            _bullet(document, "위 분석결과별 필수 조치를 완료하고 완료 근거를 문서화하십시오.")
-        for step in general_next_steps(target):
+            _bullet(document, "위 조치를 완료하고, 완료를 입증할 자료를 보관하십시오.")
+        steps = general_next_steps(target)[:2]
+        for step in steps:
             _bullet(document, step)
         if halal_result is not None and attention_details(halal_result):
-            _bullet(document, "HALAL 인증 또는 관련 유통채널을 추진하는 경우 HALAL 독립 장의 확인사항을 별도로 완료하십시오.")
-
-        _section_title(document, f"{section_index}. 용어의 정의")
-        _glossary_table(document, _common_glossary_rows())
+            _bullet(document, "HALAL 인증 또는 관련 유통채널을 추진하는 경우 HALAL 장의 확인사항도 완료하십시오.")
 
     if halal_result is not None:
-        document.add_page_break()
+        page_anchor = document.add_paragraph()
+        page_anchor.paragraph_format.page_break_before = True
+        page_anchor.paragraph_format.space_after = Pt(0)
         _chapter_header(
             document,
             chapter_number,
             "HALAL 추가 성분 검토",
-            "국가 규제판정과 별도로 원료 기원·구성·제조공정·인증자료를 검토합니다.",
+            "국가별 화장품 성분 규제와 별도로 원료 기원, 제조공정 및 인증자료를 확인합니다.",
         )
         decision = halal_decision(halal_result)
-        _decision_box(document, "할랄 최종결론", decision["possibility"])
+        _decision_box(document, "이번 HALAL 검토 결과", decision["possibility"])
 
-        _section_title(document, "1. 분석 세부내용")
+        _section_title(document, "1. 성분별 검토 결과")
         rows: List[List[str]] = []
         for detail in result_details(halal_result):
             rows.append(
@@ -2220,66 +2377,66 @@ def create_product_report_bytes(
             rows = [row for row in rows if row[0] in attention_names]
         _add_simple_table(
             document,
-            ["성분", "할랄 검토 상태", "우려 유형", "필요한 증빙"],
+            ["성분", "검토 결과", "확인 이유", "필요한 자료"],
             rows,
             NAVY,
             8.4,
             1,
         )
 
-        _section_title(document, "2. 분석결과에 따른 조치")
-        attention = attention_details(halal_result)
+        _section_title(document, "2. 필요한 조치")
         halal_action_rows = result_action_rows(halal_result, "HALAL")
         if halal_action_rows:
             _add_simple_table(
                 document,
-                ["성분", "판정", "필수 조치", "필요한 자료", "조치 완료 기준"],
+                ["성분", "판정", "해야 할 일", "필요한 자료", "완료 기준"],
                 halal_action_rows,
                 BLUE,
                 8.1,
                 1,
             )
         else:
-            _bullet(document, "현재 성분명 기준 HALAL 위험 후보가 확인되지 않아 별도의 성분 보완조치는 없습니다.")
-            _bullet(document, "다만 최종 할랄 인증 여부는 적용 인증기관의 기준과 완제품 제조공정 심사를 통해 확정됩니다.")
+            _bullet(document, "현재 성분명 기준으로 별도 확인이 필요한 HALAL 위험 후보는 발견되지 않았습니다.")
+            _bullet(document, "최종 인증 여부는 공급사 자료, 제조공정 및 인증기관 심사를 통해 결정됩니다.")
 
-        _section_title(document, "3. 수동확인 항목")
+        section_index = 3
         manual = [
             [row[1], row[4], row[7], row[8]]
             for row in halal_manual_rows(halal_result)
         ]
         if manual:
+            _section_title(document, f"{section_index}. 추가로 확인할 항목")
+            section_index += 1
             _add_simple_table(
                 document,
-                ["성분", "수동확인 유형", "확인할 사항", "필요한 자료"],
+                ["성분", "확인 유형", "확인할 사항", "필요한 자료"],
                 manual,
                 BLUE,
                 8.4,
                 1,
             )
-        else:
-            _bullet(document, "HALAL 수동확인 항목이 없습니다.")
 
-        _section_title(document, "4. 판정 해석 시 주의사항")
-        _bullet(document, "할랄 위험 후보 미확인은 할랄 인증 완료를 의미하지 않습니다.")
-        _bullet(document, "성분명만으로 동물 종, 제조공정, 발효 배지, 가공보조제와 교차오염을 확정할 수 없습니다.")
-        _bullet(document, "최종 인증 가능 여부는 공급사 증빙과 적용 인증기관의 심사를 통해 확인해야 합니다.")
-
-        _section_title(document, "5. 조치 완료 후 다음 단계" if halal_action_rows else "5. 다음 진행 단계")
+        _section_title(document, f"{section_index}. 다음 단계")
         if halal_action_rows:
-            _bullet(document, "위 확인 대상별 자료를 확보하고 결과를 기록한 뒤 HALAL 재분석을 수행하십시오.")
-        _bullet(document, "적용할 할랄 인증기관과 인증 범위를 선정하십시오.")
-        _bullet(document, "완제품 제조공정·가공보조제·교차오염 관리자료를 준비하십시오.")
-        _bullet(document, "인증기관이 요구하는 원료·공정·시설 자료를 제출해 최종 심사를 진행하십시오.")
+            _bullet(document, "필요한 자료를 확보하고 확인 결과를 기록하십시오.")
+        halal_steps = [
+            "적용할 HALAL 인증기관과 인증 범위를 정하십시오.",
+            "원료 기원, 완제품 제조공정, 가공보조제 및 교차오염 관리자료를 준비하십시오.",
+            "인증기관이 요구하는 자료를 제출하고 최종 심사를 진행하십시오.",
+        ]
+        halal_steps = halal_steps[:2]
+        for step in halal_steps:
+            _bullet(document, step)
 
-        _section_title(document, "6. 용어의 정의")
-        _glossary_table(document, _halal_glossary_rows())
+        _section_title(document, f"{section_index + 1}. 중요 안내")
+        _bullet(document, "이 검토 결과는 HALAL 인증 완료를 의미하지 않습니다.")
+        _bullet(document, "최종 판단은 공급사 증빙, 제조공정, 교차오염 관리 및 인증기관 심사를 통해 이루어집니다.")
 
     for document_section in document.sections:
         footer = document_section.footer.paragraphs[0]
         footer.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         run = footer.add_run(
-            "K-Beauty Global Compliance | 다중시장 규제 및 HALAL 추가검토"
+            "K-Beauty Global Compliance | 규제 스크리닝 및 HALAL 추가검토"
         )
         run.font.size = Pt(8)
         run.font.color.rgb = DOC_MUTED
@@ -2458,21 +2615,21 @@ def _canonical_english_pattern(text: str) -> Optional[str]:
         working = working.replace(korean_name, english_name)
 
     patterns: Tuple[Tuple[str, str], ...] = (
-        (r"^(.+?) 규제 분석 결과$", r"\\1 Regulatory Screening Results"),
-        (r"^(.+?) 종합요약$", r"\\1 Summary"),
-        (r"^(.+?) 수동확인 체크리스트$", r"\\1 Manual Regulatory Review Checklist"),
-        (r"^(.+?) 추가검토 여부$", r"\\1 Additional Review Selected"),
-        (r"^(.+?) 시장 영향$", r"\\1 Market Impact"),
-        (r"^(.+?) 종합판정$", r"\\1 Overall Review Decision"),
-        (r"^연결된 (.+?) 확인 성분$", r"Linked \\1 Verification Ingredients"),
-        (r"^(.+?) 필수 조치$", r"Required \\1 Actions"),
-        (r"^(.+?) 확인 대상$", r"\\1 Verification Ingredient"),
-        (r"^(.+?) 추가검토의 해당 시장 영향$", r"Impact of the Additional \\1 Review on This Market"),
+        (r"^(.+?) 규제 분석 결과$", r"\1 Regulatory Screening Results"),
+        (r"^(.+?) 종합요약$", r"\1 Summary"),
+        (r"^(.+?) 수동확인 체크리스트$", r"\1 Manual Regulatory Review Checklist"),
+        (r"^(.+?) 추가검토 여부$", r"\1 Additional Review Selected"),
+        (r"^(.+?) 시장 영향$", r"\1 Market Impact"),
+        (r"^(.+?) 종합판정$", r"\1 Overall Review Decision"),
+        (r"^연결된 (.+?) 확인 성분$", r"Linked \1 Verification Ingredients"),
+        (r"^(.+?) 필수 조치$", r"Required \1 Actions"),
+        (r"^(.+?) 확인 대상$", r"\1 Verification Ingredient"),
+        (r"^(.+?) 추가검토의 해당 시장 영향$", r"Impact of the Additional \1 Review on This Market"),
         (r"^East African Community\(((?:EAC|\[\[P\d{4}\]\]))\)의 국가 화장품 규제판정을 변경하지는 않지만, 회원국별 수입자·바이어·유통채널 또는 할랄 표시 전략에 따라 원료 기원과 인증자료가 추가로 요구될 수 있습니다\.$",
          r"This does not change the national cosmetics regulatory screening decision for the East African Community(\1). However, ingredient-origin and certification documentation may be additionally required depending on the member state, importer, buyer, distribution channel, or HALAL labeling strategy."),
         (r"^(.+?) 인증 또는 관련 유통채널을 추진하는 경우 (.+?) 독립 장의 확인사항을 별도로 완료하십시오\\.$",
-         r"When pursuing \\1 certification or related distribution channels, separately complete the verification items in the \\2 chapter."),
-        (r"^(.+?):$", r"\\1:"),
+         r"When pursuing \1 certification or related distribution channels, separately complete the verification items in the \2 chapter."),
+        (r"^(.+?):$", r"\1:"),
     )
     for pattern, replacement in patterns:
         if re.fullmatch(pattern, working):
@@ -2704,12 +2861,18 @@ def _translate_map(
     localized_exact = ADDITIONAL_LANGUAGE_CANONICAL_EXACT.get(language_code, {})
     result: Dict[str, str] = {}
     candidates: List[str] = []
+    protected_set = {clean_text(value) for value in protected_terms if clean_text(value)}
     for original in unique:
-        exact = localized_exact.get(clean_text(original))
+        cleaned = clean_text(original)
+        exact = localized_exact.get(cleaned)
         if exact is not None:
             canonical = _canonicalize_additional_language_text(exact, language_code)
             _validate_additional_language_terminology(canonical, language_code)
             result[original] = canonical
+        elif cleaned in protected_set:
+            # Product names, source files, ingredient names, INCI, CAS, URLs,
+            # market codes, and official identifiers must remain unchanged.
+            result[original] = original
         else:
             candidates.append(original)
 
@@ -2717,9 +2880,34 @@ def _translate_map(
         return result
     if translator is None:
         raise RuntimeError("선택 언어 출력을 생성하려면 번역 기능이 필요합니다.")
-    protected_texts, token_to_term = _protect_strings(candidates, protected_terms)
-    translated = translator(protected_texts, language_code, list(token_to_term))
+
+    # Additional languages are translated from the polished English version,
+    # not directly from Korean. This avoids carrying Korean word order and
+    # internal system terminology into the localized report.
+    english_map = _translate_map(candidates, "en", translator, protected_terms)
+    english_sources = [english_map[original] for original in candidates]
+    protected_texts, token_to_term = _protect_strings(english_sources, protected_terms)
+
+    translatable: List[Tuple[str, str]] = []
+    translatable_originals: List[str] = []
     for original, protected in zip(candidates, protected_texts):
+        if not _visible_translation_text(protected):
+            # A string made only of protected identifiers must not be sent to a
+            # translator. Preserve it exactly.
+            result[original] = original
+        else:
+            translatable_originals.append(original)
+            translatable.append((original, protected))
+
+    if not translatable:
+        return result
+
+    translated = translator(
+        [protected for _, protected in translatable],
+        language_code,
+        list(token_to_term),
+    )
+    for original, protected in translatable:
         localized = clean_text(translated.get(protected), protected)
         canonical_protected = _canonicalize_additional_language_text(
             localized, language_code

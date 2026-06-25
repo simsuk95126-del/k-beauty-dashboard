@@ -53,7 +53,7 @@ st.set_page_config(
 # ============================================================
 load_dotenv()
 
-APP_VERSION = "v9.1.0"
+APP_VERSION = "v9.1.1"
 
 
 def get_config(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -311,14 +311,29 @@ def translate_report_texts(
         terminology_instruction = (
             f"\n\n{glossary_prompt}" if glossary_prompt else ""
         )
+        if language_code == "en":
+            style_instruction = (
+                "Write clear, natural, professional regulatory English. "
+                "Use short direct sentences and plain business language. "
+                "Do not translate Korean word order literally. Avoid bureaucratic labels, "
+                "vague phrases, and internal-system terminology. "
+            )
+        else:
+            style_instruction = (
+                "The source text is polished English. Translate it into natural, concise, "
+                f"professional {target_language}. Do not translate word-for-word. "
+                "Use short sentences that a business reader can understand immediately. "
+                "Do not expand the text or reintroduce technical wording that was removed. "
+            )
         system_prompt = (
             "You are a professional cosmetics regulatory document translator. "
             f"Translate every source string into {target_language}. "
-            "Do not add legal conclusions, explanations, or omissions. "
-            "Preserve the exact meaning, warnings, numbering, punctuation structure, "
-            "and all placeholder tokens. Keep INCI names, CAS numbers, URLs, file names, "
-            "market codes, institution acronyms, and official identifiers unchanged. "
-            "Return JSON only in the form "
+            f"{style_instruction}"
+            "Do not add legal conclusions, explanations, or unsupported claims. "
+            "Preserve the exact meaning, warnings, numbering, and all placeholder tokens. "
+            "Keep INCI names, CAS numbers, URLs, file names, market codes, institution "
+            "acronyms, and official identifiers unchanged. Preserve question-and-answer "
+            "structure where present. Return JSON only in the form "
             '{"translations":[{"id":0,"translation":"..."}]}. '
             "Placeholder tokens matching [[P####]] must remain exact."
             f"{terminology_instruction}"
