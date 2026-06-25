@@ -20,6 +20,9 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 
+REPORT_BUILD_ID = "v9.1.1-report-r2"
+
+
 MARKET_LABELS: Dict[str, str] = {
     "US": "미국(US)",
     "EU": "유럽연합(EU)",
@@ -27,7 +30,7 @@ MARKET_LABELS: Dict[str, str] = {
     "CN": "중국(CN)",
     "ASEAN": "아세안(ASEAN)",
     "SFDA": "사우디아라비아(SFDA)",
-    "EAC": "동아프리카공동체(EAC)",
+    "EAC": "유라시아경제연합(EAEU)",
     "HALAL": "HALAL 추가 성분 검토",
 }
 
@@ -570,7 +573,7 @@ ENGLISH_CANONICAL_EXACT.update({
     "달라지지 않습니다. 이 시장의 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.": "No. The ingredient-regulatory screening and the HALAL review are separate assessments.",
     "달라지지 않습니다. 화장품 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.": "No. The cosmetics ingredient-regulatory screening and the HALAL review are separate assessments.",
     "달라지지 않습니다. 국가별 화장품 성분 규제와 HALAL 요건은 별도로 확인합니다.": "No. Country-specific cosmetics ingredient regulations and HALAL requirements are assessed separately.",
-    "달라지지 않습니다. EAC 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.": "No. The EAC ingredient-regulatory screening and the HALAL review are separate assessments.",
+    "달라지지 않습니다. EAEU 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.": "No. The EAC ingredient-regulatory screening and the HALAL review are separate assessments.",
 
     "현재 분석 결과, 성분 규제와 관련하여 즉시 수정해야 할 항목은 없습니다.": "No immediate ingredient-related change is required based on this screening.",
     "제품 등록, 라벨, 광고 및 통관 요건은 별도로 확인해야 합니다.": "Product registration, labeling, claims, and customs requirements must still be reviewed separately.",
@@ -814,6 +817,10 @@ ENGLISH_CANONICAL_EXACT.update({
     "HALAL 자료가 필요한 경우": "When HALAL documentation may be required",
     "이 시장의 성분 규제 결과에 미치는 영향": "Does the HALAL review change this ingredient-regulatory result?",
     "HALAL 추가검토상 필수 보완조치 없음": "No Additional HALAL Corrective Action Required",
+    "성분 규제 외 별도 절차": "Separate Non-Ingredient Market Procedures",
+    "성분 규제상 추가 조치나 재분석은 필요하지 않습니다.": "No additional ingredient-regulatory action or re-screening is required.",
+    "제품 등록·라벨·표시광고·통관은 성분 규제와 별도 절차이므로 필요한 경우 확인하십시오.": "Product registration, labeling, claims, and customs are separate from ingredient screening and should be reviewed only as applicable.",
+    "성분 규제상 추가 조치 없음. 제품 등록·라벨·표시광고·통관은 별도 절차": "No additional ingredient-regulatory action. Product registration, labeling, claims, and customs are separate procedures.",
 })
 
 STATUS_ORDER = [
@@ -1257,9 +1264,9 @@ def halal_market_relation(target: str) -> Dict[str, str]:
         return {
             "direct_required": "회원국과 거래 상대방의 요구에 따라 다릅니다.",
             "required_when": "수입자, 바이어 또는 유통채널이 할랄 표시나 인증자료를 요구하는 경우",
-            "screening_effect": "달라지지 않습니다. EAC 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
+            "screening_effect": "달라지지 않습니다. EAEU 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
             "relevance": "회원국과 거래 상대방의 요구에 따라 다릅니다.",
-            "regulatory_effect": "달라지지 않습니다. EAC 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
+            "regulatory_effect": "달라지지 않습니다. EAEU 성분 규제 분석과 HALAL 검토는 별도로 판단합니다.",
         }
     return {
         "direct_required": "일반 화장품 판매에는 직접 필요하지 않습니다.",
@@ -1392,7 +1399,14 @@ def market_summary_rows(
         ["성분 규제 진행 상태", decision["possibility"]],
         ["최종결론", decision["conclusion"]],
         ["필요한 조치", summary_required_action(result_data)],
-        [("조치 완료 후 다음 단계" if attention_details(result_data) else "다음 진행 단계"), " / ".join(general_next_steps(target)[:2])],
+        [
+            ("조치 완료 후 다음 단계" if attention_details(result_data) else "성분 규제 외 별도 절차"),
+            (
+                " / ".join(general_next_steps(target)[:2])
+                if attention_details(result_data)
+                else "성분 규제상 추가 조치 없음. 제품 등록·라벨·표시광고·통관은 별도 절차"
+            ),
+        ],
         ["검토 기준 DB", clean_text(result_data.get("database_file"))],
         ["DB 업데이트일", clean_text(result_data.get("database_last_updated"))],
         ["보고서 생성일", clean_text(result_data.get("report_generated_at"), datetime.now().strftime("%Y-%m-%d %H:%M:%S"))],
@@ -2332,14 +2346,17 @@ def create_product_report_bytes(
                 1,
             )
 
-        _section_title(document, f"{section_index}. 다음 단계")
         if action_rows:
+            _section_title(document, f"{section_index}. 조치 완료 후 다음 단계")
             _bullet(document, "위 조치를 완료하고, 완료를 입증할 자료를 보관하십시오.")
-        steps = general_next_steps(target)[:2]
-        for step in steps:
-            _bullet(document, step)
-        if halal_result is not None and attention_details(halal_result):
-            _bullet(document, "HALAL 인증 또는 관련 유통채널을 추진하는 경우 HALAL 장의 확인사항도 완료하십시오.")
+            for step in general_next_steps(target)[:2]:
+                _bullet(document, step)
+            if halal_result is not None and attention_details(halal_result):
+                _bullet(document, "HALAL 인증 또는 관련 유통채널을 추진하는 경우 HALAL 장의 확인사항도 완료하십시오.")
+        else:
+            _section_title(document, f"{section_index}. 성분 규제 외 별도 절차")
+            _bullet(document, "성분 규제상 추가 조치나 재분석은 필요하지 않습니다.")
+            _bullet(document, "제품 등록·라벨·표시광고·통관은 성분 규제와 별도 절차이므로 필요한 경우 확인하십시오.")
 
     if halal_result is not None:
         page_anchor = document.add_paragraph()
@@ -2517,6 +2534,7 @@ def _result_protected_terms(
         "ASEAN",
         "SFDA",
         "EAC",
+        "EAEU",
         "FDA",
         "NMPA",
     }
@@ -2581,7 +2599,7 @@ ENGLISH_MARKET_NAME_REPLACEMENTS: Tuple[Tuple[str, str], ...] = (
     ("중국", "China"),
     ("아세안", "ASEAN"),
     ("사우디아라비아", "Saudi Arabia"),
-    ("동아프리카공동체", "East African Community"),
+    ("유라시아경제연합", "Eurasian Economic Union"),
 )
 
 
@@ -2625,8 +2643,8 @@ def _canonical_english_pattern(text: str) -> Optional[str]:
         (r"^(.+?) 필수 조치$", r"Required \1 Actions"),
         (r"^(.+?) 확인 대상$", r"\1 Verification Ingredient"),
         (r"^(.+?) 추가검토의 해당 시장 영향$", r"Impact of the Additional \1 Review on This Market"),
-        (r"^East African Community\(((?:EAC|\[\[P\d{4}\]\]))\)의 국가 화장품 규제판정을 변경하지는 않지만, 회원국별 수입자·바이어·유통채널 또는 할랄 표시 전략에 따라 원료 기원과 인증자료가 추가로 요구될 수 있습니다\.$",
-         r"This does not change the national cosmetics regulatory screening decision for the East African Community(\1). However, ingredient-origin and certification documentation may be additionally required depending on the member state, importer, buyer, distribution channel, or HALAL labeling strategy."),
+        (r"^Eurasian Economic Union\(((?:EAC|\[\[P\d{4}\]\]))\)의 국가 화장품 규제판정을 변경하지는 않지만, 회원국별 수입자·바이어·유통채널 또는 할랄 표시 전략에 따라 원료 기원과 인증자료가 추가로 요구될 수 있습니다\.$",
+         r"This does not change the national cosmetics regulatory screening decision for the Eurasian Economic Union(\1). However, ingredient-origin and certification documentation may be additionally required depending on the member state, importer, buyer, distribution channel, or HALAL labeling strategy."),
         (r"^(.+?) 인증 또는 관련 유통채널을 추진하는 경우 (.+?) 독립 장의 확인사항을 별도로 완료하십시오\\.$",
          r"When pursuing \1 certification or related distribution channels, separately complete the verification items in the \2 chapter."),
         (r"^(.+?):$", r"\1:"),
@@ -2666,7 +2684,7 @@ def _canonicalize_english_text(text: str) -> str:
 
     # Normalize market-label spacing and the order of the additional-review label.
     value = re.sub(
-        r"\b(United States|European Union|United Kingdom|China|Saudi Arabia|East African Community)"
+        r"\b(United States|European Union|United Kingdom|China|Saudi Arabia|Eurasian Economic Union)"
         r"\((US|EU|UK|CN|SFDA|EAC)\)",
         r"\1 (\2)",
         value,
