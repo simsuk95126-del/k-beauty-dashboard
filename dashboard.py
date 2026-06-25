@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import os
 import time
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -14,9 +16,13 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from report_builder_v2 import (
+from report_builder_v3 import (
+    TRANSLATION_GLOSSARY_PROMPTS,
+    LANGUAGE_FILE_SUFFIXES,
     MARKET_LABELS,
+    OUTPUT_LANGUAGES,
     STATUS_LABELS,
+    action_for_detail,
     clean_text,
     create_bundle_zip_bytes,
     create_product_excel_bytes,
@@ -25,6 +31,10 @@ from report_builder_v2 import (
     halal_decision,
     market_decision,
     normalize_status,
+    normalized_reason,
+    output_file_name,
+    output_zip_name,
+    required_evidence_for_detail,
     safe_filename,
     safe_int,
     status_counts,
@@ -43,9 +53,25 @@ st.set_page_config(
 # ============================================================
 load_dotenv()
 
-APP_VERSION = "v9.0.0 (Multi-Product · Multi-Market · HALAL)"
-API_BASE_URL = os.environ.get(
-    "API_BASE_URL",
+APP_VERSION = "v9.1.0"
+
+
+def get_config(name: str, default: Optional[str] = None) -> Optional[str]:
+    """Read configuration from environment first, then Streamlit secrets."""
+    value = os.environ.get(name)
+    if value is not None and str(value).strip():
+        return str(value).strip()
+    try:
+        secrets = getattr(st, "secrets", {})
+        if name in secrets and str(secrets[name]).strip():
+            return str(secrets[name]).strip()
+    except Exception:
+        pass
+    return default
+
+
+API_BASE_URL = clean_text(
+    get_config("API_BASE_URL", "https://k-beauty-api.onrender.com"),
     "https://k-beauty-api.onrender.com",
 ).rstrip("/")
 MULTI_COMPLIANCE_API_URL = (
@@ -54,8 +80,8 @@ MULTI_COMPLIANCE_API_URL = (
 COMPLIANCE_API_URL = f"{API_BASE_URL}/api/v1/compliance-report"
 DATABASE_STATUS_URL = f"{API_BASE_URL}/api/v1/database-status"
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-MASTER_KEY = os.environ.get("MASTER_KEY")
+OPENAI_API_KEY = get_config("OPENAI_API_KEY")
+MASTER_KEY = get_config("MASTER_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 REGULATORY_MARKETS = [
@@ -75,7 +101,7 @@ MARKET_OPTIONS = {
     "CN": "중국(CN) — NMPA",
     "ASEAN": "아세안(ASEAN) — ASEAN Cosmetic Directive",
     "SFDA": "사우디아라비아(SFDA)",
-    "EAC": "유라시아경제연합(EAC)",
+    "EAC": "동아프리카공동체(EAC) — East African Community",
 }
 
 STATUS_BADGES = {
@@ -99,9 +125,9 @@ def initialize_session_state() -> None:
         "current_auth_msg": None,
         "current_auth_tier": "INVALID",
         "last_entered_key": None,
-        "test_notice_shown": False,
         "disclaimer_agreed": False,
         "analysis_result": None,
+        "localized_outputs": {},
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -110,6 +136,7 @@ def initialize_session_state() -> None:
 
 def reset_results() -> None:
     st.session_state.analysis_result = None
+    st.session_state.localized_outputs = {}
 
 
 # ============================================================
@@ -236,6 +263,115 @@ def extract_ingredients_from_image(
         return dedupe_preserve(values), None
     except Exception as exc:
         return [], f"이미지 성분 추출 실패: {type(exc).__name__}: {exc}"
+
+
+
+@st.cache_data(show_spinner=False, ttl=86400)
+def translate_report_texts(
+    texts: Tuple[str, ...],
+    language_code: str,
+    protected_tokens: Tuple[str, ...] = (),
+) -> Dict[str, str]:
+    """보고서·Excel의 표시 문구를 한 번에 번역한다.
+
+    규제 의미를 바꾸지 않고 토큰, INCI, CAS, 시장 코드, URL과 파일명은
+    그대로 유지한다. 분석은 다시 실행하지 않으며 출력 파일만 현지화한다.
+    """
+    unique_texts = tuple(dedupe_preserve(texts))
+    if not unique_texts:
+        return {}
+    if language_code not in OUTPUT_LANGUAGES:
+        raise ValueError(f"지원하지 않는 출력 언어입니다: {language_code}")
+    if client is None:
+        raise RuntimeError(
+            "다국어 파일 생성을 위한 OPENAI_API_KEY가 설정되지 않았습니다."
+        )
+
+    target_language = OUTPUT_LANGUAGES[language_code]
+    result: Dict[str, str] = {}
+    chunks: List[List[str]] = []
+    current: List[str] = []
+    current_chars = 0
+    for text in unique_texts:
+        if current and (len(current) >= 45 or current_chars + len(text) > 9000):
+            chunks.append(current)
+            current = []
+            current_chars = 0
+        current.append(text)
+        current_chars += len(text)
+    if current:
+        chunks.append(current)
+
+    for chunk in chunks:
+        payload = [
+            {"id": index, "source": text}
+            for index, text in enumerate(chunk)
+        ]
+        glossary_prompt = TRANSLATION_GLOSSARY_PROMPTS.get(language_code, "")
+        terminology_instruction = (
+            f"\n\n{glossary_prompt}" if glossary_prompt else ""
+        )
+        system_prompt = (
+            "You are a professional cosmetics regulatory document translator. "
+            f"Translate every source string into {target_language}. "
+            "Do not add legal conclusions, explanations, or omissions. "
+            "Preserve the exact meaning, warnings, numbering, punctuation structure, "
+            "and all placeholder tokens. Keep INCI names, CAS numbers, URLs, file names, "
+            "market codes, institution acronyms, and official identifiers unchanged. "
+            "Return JSON only in the form "
+            '{"translations":[{"id":0,"translation":"..."}]}. '
+            "Placeholder tokens matching [[P####]] must remain exact."
+            f"{terminology_instruction}"
+        )
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {"items": payload},
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                temperature=0.0,
+            )
+            content = (response.choices[0].message.content or "").strip()
+            if content.startswith("```"):
+                content = content.strip("`")
+                if content.lower().startswith("json"):
+                    content = content[4:].lstrip()
+            parsed = json.loads(content)
+            items = parsed.get("translations") or []
+            by_id = {
+                int(item["id"]): clean_text(item.get("translation"))
+                for item in items
+                if isinstance(item, dict) and "id" in item
+            }
+            for index, source in enumerate(chunk):
+                translated = by_id.get(index)
+                if not translated:
+                    raise ValueError(f"번역 누락: {source[:80]}")
+                result[source] = translated
+        except Exception as exc:
+            raise RuntimeError(
+                f"{target_language} 출력 번역 실패: {type(exc).__name__}: {exc}"
+            ) from exc
+    return result
+
+
+def report_translator(
+    texts: Sequence[str],
+    language_code: str,
+    protected_tokens: Sequence[str],
+) -> Dict[str, str]:
+    return translate_report_texts(
+        tuple(texts),
+        language_code,
+        tuple(protected_tokens),
+    )
 
 
 def dedupe_preserve(values: Sequence[str]) -> List[str]:
@@ -434,10 +570,8 @@ def render_market_summary(target: str, result_data: dict) -> None:
                 "INCI": clean_text(detail.get("inci_name")),
                 "CAS": clean_text(detail.get("cas_number"), "N/A"),
                 "판정": STATUS_LABELS.get(raw_status, raw_status),
-                "근거·확인사항": clean_text(
-                    detail.get("regulation_reason")
-                    or detail.get("regulation_notice")
-                ),
+                "근거·확인사항": normalized_reason(detail, target),
+                "분석결과에 따른 조치": action_for_detail(detail, target),
             }
         )
     st.dataframe(
@@ -484,8 +618,12 @@ def render_halal_summary(result_data: dict) -> None:
                         STATUS_BADGES.get(raw_status, raw_status),
                     )
                 ),
-                "필요한 자료": clean_text(detail.get("required_evidence")),
-                "후속 조치": clean_text(detail.get("recommended_action")),
+                "필요한 자료": required_evidence_for_detail(
+                    detail,
+                    raw_status,
+                    "HALAL",
+                ),
+                "분석결과에 따른 조치": action_for_detail(detail, "HALAL"),
             }
         )
     st.dataframe(
@@ -496,30 +634,126 @@ def render_halal_summary(result_data: dict) -> None:
 
 
 # ============================================================
+# 언어별 다운로드 파일 생성
+# ============================================================
+def build_language_outputs(
+    analysis_result: dict,
+    language_code: str,
+) -> dict:
+    if language_code not in OUTPUT_LANGUAGES:
+        raise ValueError(f"지원하지 않는 출력 언어입니다: {language_code}")
+    translator = report_translator if client is not None else None
+    localized_products: List[dict] = []
+    selected_markets = analysis_result.get("selected_markets") or []
+
+    for product in analysis_result.get("products") or []:
+        excel_data = create_product_excel_bytes(
+            product_name=product["product_name"],
+            source_file=product["source_file"],
+            market_results_map=product["market_results"],
+            selected_markets=selected_markets,
+            halal_result=product.get("halal_result"),
+            language_code=language_code,
+            translator=translator,
+        )
+        report_data = create_product_report_bytes(
+            product_name=product["product_name"],
+            source_file=product["source_file"],
+            market_results_map=product["market_results"],
+            selected_markets=selected_markets,
+            halal_result=product.get("halal_result"),
+            language_code=language_code,
+            translator=translator,
+        )
+        localized_products.append(
+            {
+                **product,
+                "excel_data": excel_data,
+                "report_data": report_data,
+            }
+        )
+
+    bundle_data = create_bundle_zip_bytes(
+        localized_products,
+        analysis_result.get("failures") or [],
+        language_code=language_code,
+    )
+    return {
+        "language_code": language_code,
+        "products": localized_products,
+        "bundle_data": bundle_data,
+    }
+
+
+def build_delivery_outputs(
+    analysis_result: dict,
+    additional_language_code: Optional[str],
+) -> dict:
+    """Always generate English and optionally one additional language."""
+    language_codes = ["en"]
+    if (
+        additional_language_code
+        and additional_language_code != "none"
+        and additional_language_code != "en"
+    ):
+        if additional_language_code not in OUTPUT_LANGUAGES:
+            raise ValueError(
+                f"지원하지 않는 추가 언어입니다: {additional_language_code}"
+            )
+        language_codes.append(additional_language_code)
+
+    outputs = {
+        code: build_language_outputs(analysis_result, code)
+        for code in language_codes
+    }
+
+    combined = io.BytesIO()
+    with zipfile.ZipFile(
+        combined,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as archive:
+        for code, output in outputs.items():
+            folder = LANGUAGE_FILE_SUFFIXES[code]
+            with zipfile.ZipFile(
+                io.BytesIO(output["bundle_data"]),
+                "r",
+            ) as source_zip:
+                for member in source_zip.infolist():
+                    if member.is_dir():
+                        continue
+                    archive.writestr(
+                        f"{folder}/{member.filename}",
+                        source_zip.read(member),
+                    )
+
+    suffixes = "+".join(
+        LANGUAGE_FILE_SUFFIXES[code] for code in language_codes
+    )
+    return {
+        "language_codes": language_codes,
+        "outputs": outputs,
+        "bundle_data": combined.getvalue(),
+        "bundle_name": (
+            f"Multi_Product_Regulatory_Screening_Results_{suffixes}.zip"
+        ),
+    }
+
+
+# ============================================================
 # 앱 실행
 # ============================================================
 def run_app() -> None:
     initialize_session_state()
 
-    @st.dialog("시스템 안내")
-    def show_test_server_popup() -> None:
-        st.warning(
-            "현재 시스템은 운영 전 검증 환경입니다. "
-            "규제 데이터와 생성 파일을 최종 업무에 사용하기 전에 반드시 확인하십시오."
-        )
-        if st.button("확인", use_container_width=True):
-            st.session_state.test_notice_shown = True
-            st.rerun()
-
-    if not st.session_state.test_notice_shown:
-        show_test_server_popup()
-        st.stop()
-
     # --------------------------------------------------------
     # 사이드바
     # --------------------------------------------------------
-    st.sidebar.error("검증 환경")
     st.sidebar.success(f"SYSTEM ONLINE · {APP_VERSION}")
+    if client is not None:
+        st.sidebar.caption("다국어 출력 준비됨")
+    else:
+        st.sidebar.warning("다국어 출력 비활성 — OPENAI_API_KEY 확인 필요")
 
     database_status = fetch_database_status()
     if database_status:
@@ -569,7 +803,7 @@ def run_app() -> None:
             st.sidebar.error(message)
     else:
         st.sidebar.warning(
-            "무료 검증 이용: "
+            "무료 이용: "
             f"잔여 {st.session_state.free_analysis_units_left}건"
         )
 
@@ -777,20 +1011,6 @@ def run_app() -> None:
             )
 
             if market_results_map:
-                excel_data = create_product_excel_bytes(
-                    product_name=product["product_name"],
-                    source_file=product["source_file"],
-                    market_results_map=market_results_map,
-                    selected_markets=selected_markets,
-                    halal_result=halal_result,
-                )
-                report_data = create_product_report_bytes(
-                    product_name=product["product_name"],
-                    source_file=product["source_file"],
-                    market_results_map=market_results_map,
-                    selected_markets=selected_markets,
-                    halal_result=halal_result,
-                )
                 product_outputs.append(
                     {
                         "product_name": product["product_name"],
@@ -798,8 +1018,6 @@ def run_app() -> None:
                         "ingredients": product["ingredients"],
                         "market_results": market_results_map,
                         "halal_result": halal_result,
-                        "excel_data": excel_data,
-                        "report_data": report_data,
                     }
                 )
 
@@ -818,12 +1036,11 @@ def run_app() -> None:
                 st.session_state.free_analysis_units_left - completed_units,
             )
 
-        bundle_data = create_bundle_zip_bytes(product_outputs, failures)
+        st.session_state.localized_outputs = {}
         st.session_state.analysis_result = {
             "result_id": uuid.uuid4().hex,
             "products": product_outputs,
             "failures": failures,
-            "bundle_data": bundle_data,
             "requested_units": analysis_units,
             "completed_units": completed_units,
             "selected_markets": selected_markets,
@@ -849,13 +1066,92 @@ def run_app() -> None:
         cols[2].metric("성공 건수", analysis_result["completed_units"])
         cols[3].metric("실패 건수", len(analysis_result["failures"]))
 
-        st.download_button(
-            "전체 Excel·Word 결과 ZIP 다운로드",
-            data=analysis_result["bundle_data"],
-            file_name="다중제품_다중시장_규제분석결과.zip",
-            mime="application/zip",
-            use_container_width=True,
+        st.markdown("#### 출력 언어")
+        st.info(
+            "English Excel·Word는 기본으로 항상 포함됩니다. "
+            "필요한 경우 추가 언어 1개를 선택할 수 있습니다."
         )
+        additional_options = [
+            "none",
+            *[code for code in OUTPUT_LANGUAGES if code != "en"],
+        ]
+        additional_language_code = st.selectbox(
+            "추가 출력 언어",
+            options=additional_options,
+            format_func=lambda code: (
+                "추가 언어 없음 — English only"
+                if code == "none"
+                else OUTPUT_LANGUAGES[code]
+            ),
+            key=(
+                f"additional_download_language_"
+                f"{analysis_result['result_id']}"
+            ),
+        )
+        st.caption(
+            "언어 선택은 분석을 다시 실행하거나 분석 건수를 추가 차감하지 "
+            "않습니다. INCI, CAS 번호, 공식 기관 약어, URL과 원문 식별자는 "
+            "번역하지 않습니다."
+        )
+        output_cache_key = (
+            f"{analysis_result['result_id']}::en::"
+            f"{additional_language_code}"
+        )
+        delivery_output = st.session_state.localized_outputs.get(
+            output_cache_key
+        )
+        additional_label = (
+            ""
+            if additional_language_code == "none"
+            else f" + {OUTPUT_LANGUAGES[additional_language_code]}"
+        )
+        translation_ready = client is not None
+        if not translation_ready:
+            st.error(
+                "영문 및 다국어 파일 생성 기능을 사용할 수 없습니다. "
+                "관리자가 OPENAI_API_KEY 설정을 확인해야 합니다."
+            )
+        if st.button(
+            f"English{additional_label} Excel·Word 파일 생성",
+            type="primary",
+            use_container_width=True,
+            disabled=not translation_ready,
+            key=f"generate_{output_cache_key}",
+        ):
+            try:
+                with st.spinner(
+                    f"English{additional_label} 출력 파일 생성 중..."
+                ):
+                    delivery_output = build_delivery_outputs(
+                        analysis_result,
+                        additional_language_code,
+                    )
+                    st.session_state.localized_outputs[
+                        output_cache_key
+                    ] = delivery_output
+                st.success(
+                    "영문 기본본과 선택한 추가 언어본 생성이 완료되었습니다."
+                )
+            except Exception as exc:
+                st.error(
+                    f"출력 파일 생성 실패: {type(exc).__name__}: {exc}"
+                )
+                delivery_output = None
+
+        if delivery_output:
+            st.download_button(
+                "전체 Excel·Word 결과 ZIP 다운로드",
+                data=delivery_output["bundle_data"],
+                file_name=delivery_output["bundle_name"],
+                mime="application/zip",
+                use_container_width=True,
+                key=f"bundle_{output_cache_key}",
+            )
+        else:
+            st.info(
+                "English 기본본과 필요한 추가 언어를 선택한 뒤 "
+                "파일 생성 버튼을 누르십시오."
+            )
 
         if analysis_result["failures"]:
             st.error("일부 제품·시장 분석이 실패했습니다.")
@@ -873,37 +1169,61 @@ def run_app() -> None:
             st.markdown(
                 f"### {product_index}. {product['product_name']}"
             )
-            download_cols = st.columns(2)
-            with download_cols[0]:
-                st.download_button(
-                    "Excel 규제분석결과 다운로드",
-                    data=product["excel_data"],
-                    file_name=(
-                        f"{safe_filename(product['product_name'])}_"
-                        "다중시장_규제분석결과.xlsx"
-                    ),
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "spreadsheetml.sheet"
-                    ),
-                    use_container_width=True,
-                    key=f"excel_{analysis_result['result_id']}_{product_index}",
-                )
-            with download_cols[1]:
-                st.download_button(
-                    "Word 규제스크리닝 보고서 다운로드",
-                    data=product["report_data"],
-                    file_name=(
-                        f"{safe_filename(product['product_name'])}_"
-                        "다중시장_규제스크리닝_보고서.docx"
-                    ),
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument."
-                        "wordprocessingml.document"
-                    ),
-                    use_container_width=True,
-                    key=f"docx_{analysis_result['result_id']}_{product_index}",
-                )
+            if delivery_output:
+                for output_language_code in delivery_output[
+                    "language_codes"
+                ]:
+                    localized_output = delivery_output["outputs"][
+                        output_language_code
+                    ]
+                    localized_product = localized_output["products"][
+                        product_index - 1
+                    ]
+                    with st.expander(
+                        f"{OUTPUT_LANGUAGES[output_language_code]} 다운로드",
+                        expanded=(output_language_code == "en"),
+                    ):
+                        download_cols = st.columns(2)
+                        with download_cols[0]:
+                            st.download_button(
+                                "Excel 규제분석결과 다운로드",
+                                data=localized_product["excel_data"],
+                                file_name=output_file_name(
+                                    product["product_name"],
+                                    "excel",
+                                    output_language_code,
+                                    "xlsx",
+                                ),
+                                mime=(
+                                    "application/vnd.openxmlformats-officedocument."
+                                    "spreadsheetml.sheet"
+                                ),
+                                use_container_width=True,
+                                key=(
+                                    f"excel_{output_cache_key}_"
+                                    f"{output_language_code}_{product_index}"
+                                ),
+                            )
+                        with download_cols[1]:
+                            st.download_button(
+                                "Word 규제스크리닝 보고서 다운로드",
+                                data=localized_product["report_data"],
+                                file_name=output_file_name(
+                                    product["product_name"],
+                                    "report",
+                                    output_language_code,
+                                    "docx",
+                                ),
+                                mime=(
+                                    "application/vnd.openxmlformats-officedocument."
+                                    "wordprocessingml.document"
+                                ),
+                                use_container_width=True,
+                                key=(
+                                    f"docx_{output_cache_key}_"
+                                    f"{output_language_code}_{product_index}"
+                                ),
+                            )
 
             tabs = st.tabs(
                 [
