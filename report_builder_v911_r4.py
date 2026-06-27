@@ -13,6 +13,7 @@ customer-facing report model to the backend v6.2 schema:
 """
 
 import io
+import re
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -1153,6 +1154,22 @@ base.ENGLISH_CANONICAL_EXACT.update(
         "국가·시장별 공식 규제자료와의 화장품 성분 사전 스크리닝": "Preliminary Cosmetic Ingredient Screening Against Country- and Market-Specific Official Regulatory Data",
     }
 )
+
+# SHA-256 and similar hexadecimal fingerprints are technical identifiers, not
+# sentence-like English. The inherited r3 heuristic can otherwise classify a
+# hash containing several alphabetic runs as untranslated prose in Korean output.
+_original_needs_korean_translation = base._needs_korean_translation
+
+
+def _needs_korean_translation(text: str) -> bool:
+    value = clean_text(text)
+    if re.fullmatch(r"[0-9A-Fa-f]{32,128}", value):
+        return False
+    return _original_needs_korean_translation(value)
+
+
+base._needs_korean_translation = _needs_korean_translation
+
 
 # Make r3 bundle/localization helpers resolve the r4 implementations at runtime.
 base.market_decision = market_decision
