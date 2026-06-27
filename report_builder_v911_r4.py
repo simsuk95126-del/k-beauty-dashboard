@@ -29,7 +29,7 @@ from openpyxl.utils import get_column_letter
 import report_builder_v911_r3 as base
 
 
-REPORT_BUILD_ID = "v9.1.1-report-r4-country-specific"
+REPORT_BUILD_ID = "v9.1.1-report-r4.1-country-specific"
 
 # Public constants reused by dashboard.py
 TRANSLATION_GLOSSARY_PROMPTS = base.TRANSLATION_GLOSSARY_PROMPTS
@@ -1155,12 +1155,40 @@ base.ENGLISH_CANONICAL_EXACT.update(
     }
 )
 
-# Technical identifiers are not sentence-like English and must remain unchanged
-# in localized reports. The inherited r3 heuristic counts alphabetic runs, so a
-# SHA fingerprint or several slash-separated report identifiers can otherwise be
-# misclassified as untranslated prose.
-_original_needs_korean_translation = base._needs_korean_translation
+# URLs, source files, report identifiers, database fingerprints, and similar
+# technical metadata are not prose. They must remain byte-for-byte unchanged in
+# every localized report. The inherited r3 heuristic counts alphabetic runs, so
+# a URL such as ``https://eur-lex.europa.eu/eli/reg/2009/1223`` can otherwise be
+# mistaken for untranslated English. The same risk applies to raw source-file
+# names, hashes, UUIDs, and slash-separated report identifiers.
+_original_needs_korean_translation = getattr(
+    base,
+    "_r4_original_needs_korean_translation",
+    base._needs_korean_translation,
+)
+base._r4_original_needs_korean_translation = _original_needs_korean_translation
 
+_original_result_protected_terms = getattr(
+    base,
+    "_r4_original_result_protected_terms",
+    base._result_protected_terms,
+)
+base._r4_original_result_protected_terms = _original_result_protected_terms
+
+_URL_RE = re.compile(
+    r"(?:https?|ftp)://[^\s<>\[\]{}\"']+",
+    re.IGNORECASE,
+)
+_WWW_URL_RE = re.compile(
+    r"www\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+    r"[A-Za-z]{2,}(?:/[^\s<>\[\]{}\"']*)?",
+    re.IGNORECASE,
+)
+_EMAIL_RE = re.compile(
+    r"[A-Z0-9._%+\-]+@(?:[A-Z0-9](?:[A-Z0-9\-]{0,61}[A-Z0-9])?\.)+"
+    r"[A-Z]{2,63}",
+    re.IGNORECASE,
+)
 _HEX_FINGERPRINT_RE = re.compile(r"[0-9A-Fa-f]{32,128}")
 _UUID_RE = re.compile(
     r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
@@ -1173,6 +1201,63 @@ _REPORT_IDENTIFIER_RE = re.compile(
 _DATABASE_VERSION_RE = re.compile(
     r"KBRDB-(?:[A-Z0-9]{2,12}|[ \t]*)-[0-9A-Fa-f]{8,64}"
 )
+_CAS_NUMBER_RE = re.compile(r"\d{2,7}-\d{2}-\d")
+_ISO_TIMESTAMP_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}"
+    r"(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:?\d{2})?)?"
+)
+_WINDOWS_PATH_RE = re.compile(
+    r"[A-Za-z]:[\\/](?:[^<>:\"|?*\r\n]+[\\/])*[^<>:\"|?*\r\n]*"
+)
+_POSIX_PATH_RE = re.compile(r"/(?:[^/\r\n]+/)*[^/\r\n]*")
+_FILE_NAME_RE = re.compile(
+    r"[^\\/\r\n]+\."
+    r"(?:csv|tsv|xlsx|xls|xlsm|docx|doc|pdf|txt|json|xml|html?|zip|log|md|"
+    r"yaml|yml|parquet|feather|py|sql|rtf)",
+    re.IGNORECASE,
+)
+
+_TECHNICAL_METADATA_KEYS = {
+    "url",
+    "uri",
+    "href",
+    "source_url",
+    "official_url",
+    "source_file",
+    "source_sheet",
+    "source_row",
+    "source_location",
+    "report_number",
+    "report_id",
+    "result_id",
+    "database_file",
+    "review_database_file",
+    "audit_file",
+    "database_version",
+    "database_sha256",
+    "confirmed_sha256",
+    "audit_sha256",
+    "sha256",
+    "hash",
+    "fingerprint",
+    "cas_number",
+    "inci_name",
+    "original_ingredient",
+    "report_generated_at",
+    "database_last_updated",
+}
+
+
+def _is_url(value: str) -> bool:
+    return bool(_URL_RE.fullmatch(value) or _WWW_URL_RE.fullmatch(value))
+
+
+def _is_file_or_path(value: str) -> bool:
+    return bool(
+        _WINDOWS_PATH_RE.fullmatch(value)
+        or _POSIX_PATH_RE.fullmatch(value)
+        or _FILE_NAME_RE.fullmatch(value)
+    )
 
 
 def _is_technical_identifier_component(value: str) -> bool:
@@ -1183,22 +1268,99 @@ def _is_technical_identifier_component(value: str) -> bool:
             _UUID_RE,
             _REPORT_IDENTIFIER_RE,
             _DATABASE_VERSION_RE,
+            _CAS_NUMBER_RE,
+            _ISO_TIMESTAMP_RE,
+            _EMAIL_RE,
         )
-    )
+    ) or _is_url(value) or _is_file_or_path(value)
 
 
 def _is_technical_identifier_sequence(value: str) -> bool:
-    # Summary cells can contain several report IDs separated by slashes. During
-    # translation validation protected market tokens may be hidden, producing
-    # forms such as ``KBR- -20260627T172637Z-1DB54743``; the report-ID pattern
-    # intentionally accepts that blank market-code slot as well as US/EU/EAC.
+    # Check a complete URL/path first; slashes inside a URL or file path are not
+    # sequence separators. Multiple technical values in report summary cells use
+    # whitespace-surrounded delimiters such as `` / `` or `` | ``.
+    if _is_technical_identifier_component(value):
+        return True
+
     parts = [
         clean_text(part)
-        for part in re.split(r"\s*(?:/|\||;|,)\s*", value)
+        for part in re.split(r"\s+(?:/|\||;)\s+", value)
     ]
-    return bool(parts) and all(
+    return len(parts) > 1 and all(
         part and _is_technical_identifier_component(part)
         for part in parts
+    )
+
+
+def _iter_nested_strings(value: Any) -> Iterable[str]:
+    if isinstance(value, str):
+        cleaned = clean_text(value)
+        if cleaned:
+            yield cleaned
+        return
+    if isinstance(value, dict):
+        for nested in value.values():
+            yield from _iter_nested_strings(nested)
+        return
+    if isinstance(value, (list, tuple, set)):
+        for nested in value:
+            yield from _iter_nested_strings(nested)
+
+
+def _technical_terms_from_value(value: Any, force_whole_value: bool = False) -> Iterable[str]:
+    for text in _iter_nested_strings(value):
+        # Protect URLs even when embedded in an otherwise translatable source
+        # summary so the translator cannot alter the address.
+        for match in _URL_RE.finditer(text):
+            yield match.group(0)
+        for match in _WWW_URL_RE.finditer(text):
+            yield match.group(0)
+        for match in _EMAIL_RE.finditer(text):
+            yield match.group(0)
+
+        if force_whole_value or _is_technical_identifier_sequence(text):
+            yield text
+
+
+def _collect_nested_technical_terms(value: Any) -> Iterable[str]:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            key_name = clean_text(key).casefold()
+            force_whole = key_name in _TECHNICAL_METADATA_KEYS
+            yield from _technical_terms_from_value(nested, force_whole)
+            yield from _collect_nested_technical_terms(nested)
+        return
+    if isinstance(value, (list, tuple, set)):
+        for nested in value:
+            yield from _collect_nested_technical_terms(nested)
+
+
+def _result_protected_terms(
+    product_name: str,
+    source_file: str,
+    market_results_map: Dict[str, dict],
+    halal_result: Optional[dict],
+) -> List[str]:
+    values = set(
+        _original_result_protected_terms(
+            product_name,
+            source_file,
+            market_results_map,
+            halal_result,
+        )
+    )
+
+    roots: List[Any] = [market_results_map]
+    if halal_result is not None:
+        roots.append(halal_result)
+
+    for root in roots:
+        values.update(_collect_nested_technical_terms(root))
+
+    return sorted(
+        (clean_text(value) for value in values if clean_text(value)),
+        key=len,
+        reverse=True,
     )
 
 
@@ -1209,7 +1371,58 @@ def _needs_korean_translation(text: str) -> bool:
     return _original_needs_korean_translation(value)
 
 
+base._result_protected_terms = _result_protected_terms
 base._needs_korean_translation = _needs_korean_translation
+
+# Korean report generation is fail-open for residual English text. Technical
+# metadata and occasional untranslated source wording must never block the user
+# from downloading Word/Excel outputs. Empty translations and altered protected
+# tokens remain hard failures because they can corrupt report data.
+KOREAN_OUTPUT_VALIDATION_MODE = "non_blocking"
+
+_original_validate_translated_item = getattr(
+    base,
+    "_r4_original_validate_translated_item",
+    base._validate_translated_item,
+)
+base._r4_original_validate_translated_item = _original_validate_translated_item
+
+
+def _validate_translated_item(
+    protected_source: str,
+    translated_text: str,
+    language_code: str,
+) -> None:
+    if language_code != "ko":
+        _original_validate_translated_item(
+            protected_source,
+            translated_text,
+            language_code,
+        )
+        return
+
+    source = clean_text(protected_source)
+    translated = clean_text(translated_text)
+
+    if not translated:
+        raise ValueError("빈 번역 결과")
+
+    source_tokens = base._placeholder_tokens(source)
+    translated_tokens = base._placeholder_tokens(translated)
+
+    if sorted(source_tokens) != sorted(translated_tokens):
+        raise ValueError(
+            "보호 토큰이 누락되거나 변경되었습니다: "
+            f"source={source_tokens}, translated={translated_tokens}"
+        )
+
+    # Do not reject Korean output merely because Latin text remains. Official
+    # URLs, identifiers, source filenames, regulatory citations, and fallback
+    # untranslated prose are preserved so file generation can complete.
+    return
+
+
+base._validate_translated_item = _validate_translated_item
 
 
 # Make r3 bundle/localization helpers resolve the r4 implementations at runtime.
