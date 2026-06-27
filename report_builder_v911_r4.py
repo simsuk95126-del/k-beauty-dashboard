@@ -1155,15 +1155,56 @@ base.ENGLISH_CANONICAL_EXACT.update(
     }
 )
 
-# SHA-256 and similar hexadecimal fingerprints are technical identifiers, not
-# sentence-like English. The inherited r3 heuristic can otherwise classify a
-# hash containing several alphabetic runs as untranslated prose in Korean output.
+# Technical identifiers are not sentence-like English and must remain unchanged
+# in localized reports. The inherited r3 heuristic counts alphabetic runs, so a
+# SHA fingerprint or several slash-separated report identifiers can otherwise be
+# misclassified as untranslated prose.
 _original_needs_korean_translation = base._needs_korean_translation
+
+_HEX_FINGERPRINT_RE = re.compile(r"[0-9A-Fa-f]{32,128}")
+_UUID_RE = re.compile(
+    r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+    r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
+)
+_REPORT_IDENTIFIER_RE = re.compile(
+    r"KBR-(?:[A-Z]{2,12}|[ \t]*)-"
+    r"\d{8}T\d{6}Z-[0-9A-Fa-f]{8,64}"
+)
+_DATABASE_VERSION_RE = re.compile(
+    r"KBRDB-(?:[A-Z0-9]{2,12}|[ \t]*)-[0-9A-Fa-f]{8,64}"
+)
+
+
+def _is_technical_identifier_component(value: str) -> bool:
+    return any(
+        pattern.fullmatch(value)
+        for pattern in (
+            _HEX_FINGERPRINT_RE,
+            _UUID_RE,
+            _REPORT_IDENTIFIER_RE,
+            _DATABASE_VERSION_RE,
+        )
+    )
+
+
+def _is_technical_identifier_sequence(value: str) -> bool:
+    # Summary cells can contain several report IDs separated by slashes. During
+    # translation validation protected market tokens may be hidden, producing
+    # forms such as ``KBR- -20260627T172637Z-1DB54743``; the report-ID pattern
+    # intentionally accepts that blank market-code slot as well as US/EU/EAC.
+    parts = [
+        clean_text(part)
+        for part in re.split(r"\s*(?:/|\||;|,)\s*", value)
+    ]
+    return bool(parts) and all(
+        part and _is_technical_identifier_component(part)
+        for part in parts
+    )
 
 
 def _needs_korean_translation(text: str) -> bool:
     value = clean_text(text)
-    if re.fullmatch(r"[0-9A-Fa-f]{32,128}", value):
+    if _is_technical_identifier_sequence(value):
         return False
     return _original_needs_korean_translation(value)
 
