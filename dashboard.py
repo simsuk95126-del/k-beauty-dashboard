@@ -16,9 +16,9 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
-import report_builder_v911_r3 as report_builder_module
+import report_builder_v911_r4 as report_builder_module
 
-from report_builder_v911_r3 import (
+from report_builder_v911_r4 import (
     TRANSLATION_GLOSSARY_PROMPTS,
     LANGUAGE_FILE_SUFFIXES,
     MARKET_LABELS,
@@ -30,13 +30,23 @@ from report_builder_v911_r3 import (
     create_product_excel_bytes,
     create_product_report_bytes,
     dominant_status,
+    detail_screening_label,
     halal_decision,
     market_decision,
+    market_profile_for_result,
     normalize_status,
     normalized_reason,
     output_file_name,
     output_zip_name,
     required_evidence_for_detail,
+    result_screening_decision,
+    result_screening_label,
+    screening_decision_counts,
+    official_term_summary,
+    official_document_summary,
+    entry_reference_summary,
+    jurisdiction_summary,
+    source_trace_summary,
     safe_filename,
     safe_int,
     status_counts,
@@ -565,45 +575,62 @@ def analyze_product(
 # 결과 표시 도우미
 # ============================================================
 def render_market_summary(target: str, result_data: dict) -> None:
-    counts = status_counts(result_data)
-    decision = market_decision(result_data)
-    st.markdown(f"#### {MARKET_LABELS.get(target, target)}")
-    cols = st.columns(7)
-    labels = [
-        ("통과", counts["PASS"]),
-        ("금지", counts["BANNED"]),
-        ("제한", counts["RESTRICTED"]),
-        ("표시", counts["WARNING_REQUIRED"]),
-        ("규제 대상", counts["REGULATED"]),
-        ("수동 검토", counts["REVIEW_REQUIRED"]),
-        ("명칭 검증", counts["VERIFICATION_REQUIRED"]),
-    ]
-    for column, (label, value) in zip(cols, labels):
-        column.metric(label, value)
+    profile = market_profile_for_result(target, result_data)
+    counts = screening_decision_counts(result_data)
+    decision_code = result_screening_decision(result_data)
+    decision_label = result_screening_label(result_data)
 
-    status = dominant_status(result_data)
-    message = f"{decision['overall']} — {decision['possibility']}"
-    if status == "BANNED":
+    st.markdown(
+        f"#### {clean_text(profile.get('display_name_ko'), MARKET_LABELS.get(target, target))}"
+    )
+    st.caption(
+        clean_text(
+            profile.get("screening_scope_ko"),
+            "현재 시스템에 탑재된 해당 시장 규제자료를 대조합니다.",
+        )
+    )
+
+    cols = st.columns(4)
+    cols[0].metric(
+        "우선 중단 요인",
+        counts["IMMEDIATE_STOP_SIGNAL_IDENTIFIED"],
+    )
+    cols[1].metric(
+        "조건 확인",
+        counts["CONDITIONS_REQUIRE_VERIFICATION"],
+    )
+    cols[2].metric(
+        "추가 정보·원문 확인",
+        counts["ADDITIONAL_INFORMATION_REQUIRED"],
+    )
+    cols[3].metric(
+        "즉시 중단 신호 미확인",
+        counts["NO_IMMEDIATE_STOP_SIGNAL_IDENTIFIED"],
+    )
+
+    message = decision_label
+    if decision_code == "IMMEDIATE_STOP_SIGNAL_IDENTIFIED":
         st.error(message)
-    elif status == "PASS":
+    elif decision_code == "NO_IMMEDIATE_STOP_SIGNAL_IDENTIFIED":
         st.success(message)
     else:
         st.warning(message)
 
     rows = []
     for detail in result_data.get("report_details") or []:
-        raw_status = normalize_status(
-            detail.get("compliance_status")
-            or detail.get("restriction_type")
-        )
         rows.append(
             {
                 "성분명": clean_text(detail.get("original_ingredient")),
                 "INCI": clean_text(detail.get("inci_name")),
                 "CAS": clean_text(detail.get("cas_number"), "N/A"),
-                "판정": STATUS_LABELS.get(raw_status, raw_status),
-                "근거·확인사항": normalized_reason(detail, target),
-                "분석결과에 따른 조치": action_for_detail(detail, target),
+                "스크리닝 해석": detail_screening_label(detail),
+                "공식 규제 항목": official_term_summary(detail),
+                "공식 문서": official_document_summary(detail),
+                "참조": entry_reference_summary(detail),
+                "관할": jurisdiction_summary(detail),
+                "공식 근거·확인사항": normalized_reason(detail, target),
+                "원문 추적": source_trace_summary(detail),
+                "다음 조치": action_for_detail(detail, target),
             }
         )
     st.dataframe(
@@ -611,6 +638,23 @@ def render_market_summary(target: str, result_data: dict) -> None:
         hide_index=True,
         use_container_width=True,
     )
+
+    with st.expander("보고서·데이터 추적 정보"):
+        trace_rows = [
+            {
+                "보고서 번호": clean_text(result_data.get("report_number"), "-"),
+                "API 버전": clean_text(result_data.get("api_version"), "-"),
+                "보고서 스키마": clean_text(result_data.get("report_schema_version"), "-"),
+                "DB 버전": clean_text(result_data.get("database_version"), "-"),
+                "DB 지문": clean_text(result_data.get("database_fingerprint"), "-"),
+                "생성일": clean_text(result_data.get("report_generated_at"), "-"),
+            }
+        ]
+        st.dataframe(
+            pd.DataFrame(trace_rows),
+            hide_index=True,
+            use_container_width=True,
+        )
 
 
 def render_halal_summary(result_data: dict) -> None:
